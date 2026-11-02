@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=Slonnect
+GenericName=Phone Companion
+Comment=Messages, files, clipboard and media for your KDE Connect devices
+Exec=slonnect %F
+Icon=kdeconnect
+Terminal=false
+Categories=Qt;Network;Utility;
+MimeType=x-scheme-handler/sms;x-scheme-handler/smsto;
