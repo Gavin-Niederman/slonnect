@@ -28,6 +28,12 @@ qt_add_executable(slonnect
     src/app.h src/app.cpp
     src/portalfiledialog.h src/portalfiledialog.cpp
     src/screenmirror.h src/screenmirror.cpp
+    src/nodetypes.h src/nodetypes.cpp
+    src/actionrun.h src/actionrun.cpp
+    src/actiongraph.h src/actiongraph.cpp
+    src/actionstore.h src/actionstore.cpp
+    src/actionservice.h src/actionservice.cpp
+    src/runcommand.h src/runcommand.cpp
 )
 
 target_compile_definitions(slonnect PRIVATE

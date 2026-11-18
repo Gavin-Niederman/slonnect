@@ -1,3 +1,4 @@
+#include "actionservice.h"
 #include "app.h"
 #include "imagestore.h"
 #include "messagetypes.h"
@@ -9,15 +10,67 @@
 #include <QQuickWindow>
 #include <QTimer>
 
-int main(int argc, char *argv[])
+static void setIdentity()
 {
-    QGuiApplication::setHighDpiScaleFactorRoundingPolicy(Qt::HighDpiScaleFactorRoundingPolicy::PassThrough);
-    QGuiApplication app(argc, argv);
     // Demo mode keeps its settings apart from real ones.
     QGuiApplication::setOrganizationName(qEnvironmentVariableIsSet("SLONNECT_DEMO") ? QStringLiteral("slonnect-demo") : QStringLiteral("slonnect"));
     QGuiApplication::setApplicationName(QStringLiteral("slonnect"));
     QGuiApplication::setApplicationDisplayName(QStringLiteral("Slonnect"));
     QGuiApplication::setDesktopFileName(QStringLiteral("dev.slonnect.Slonnect"));
+}
+
+// `slonnect --run-action <id> [--device <id>]`: what KDE Connect runs when the phone taps
+// one of our commands. Hands the action to the open Slonnect, or runs it here without
+// a window and exits when it's done.
+static int runAction(int argc, char *argv[], const QString &actionId, const QString &deviceId)
+{
+    // kdeconnectd normally has the session's display; without one, run offscreen.
+    if (qEnvironmentVariableIsEmpty("WAYLAND_DISPLAY") && qEnvironmentVariableIsEmpty("DISPLAY"))
+        qputenv("QT_QPA_PLATFORM", "offscreen");
+    QGuiApplication app(argc, argv);
+    setIdentity();
+    registerMessageTypes();
+    new ImageStore; // contacts parsed in the background store their photos here
+
+    if (ActionService::forward(actionId, deviceId))
+        return 0;
+
+    App::setHeadless(true);
+    auto *actions = App::instance()->actions();
+    ActionService service(actions);
+    // Own the bus name while running so further taps queue up here; if another
+    // instance grabbed it in the meantime, give the action to that one.
+    if (!service.registerOnBus(false) && ActionService::forward(actionId, deviceId))
+        return 0;
+
+    if (actions->indexOf(actionId) < 0) {
+        qWarning("slonnect: no action with id %s", qPrintable(actionId));
+        return 2;
+    }
+    int status = 0;
+    QObject::connect(actions, &ActionStore::runFinished, &app, [&status](const QString &, bool ok) { status = ok ? 0 : 1; });
+    QObject::connect(actions, &ActionStore::idle, &app, &QCoreApplication::quit, Qt::QueuedConnection);
+    QTimer::singleShot(std::chrono::minutes(30), &app, [] { QCoreApplication::exit(3); });
+    actions->run(actionId, deviceId);
+    return app.exec() == 3 ? 3 : status;
+}
+
+int main(int argc, char *argv[])
+{
+    QGuiApplication::setHighDpiScaleFactorRoundingPolicy(Qt::HighDpiScaleFactorRoundingPolicy::PassThrough);
+
+    for (int i = 1; i + 1 < argc; ++i) {
+        if (qstrcmp(argv[i], "--run-action") != 0)
+            continue;
+        QString device;
+        for (int j = 1; j + 1 < argc; ++j)
+            if (qstrcmp(argv[j], "--device") == 0)
+                device = QString::fromLocal8Bit(argv[j + 1]);
+        return runAction(argc, argv, QString::fromLocal8Bit(argv[i + 1]), device);
+    }
+
+    QGuiApplication app(argc, argv);
+    setIdentity();
     QGuiApplication::setWindowIcon(QIcon::fromTheme(QStringLiteral("kdeconnect")));
 
     QQuickStyle::setStyle(QStringLiteral("Material"));
@@ -76,6 +129,10 @@ int main(int argc, char *argv[])
             QCoreApplication::quit();
         });
     }
+
+    // Receive phone-triggered actions. Queued, so we take over from a headless run.
+    ActionService actionService(App::instance()->actions());
+    actionService.registerOnBus(true);
 
     const QStringList args = app.arguments();
     for (int i = 1; i < args.size(); ++i)

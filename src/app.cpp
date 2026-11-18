@@ -11,6 +11,13 @@ App *App::instance()
     return app;
 }
 
+static bool s_headless = false;
+
+void App::setHeadless(bool headless)
+{
+    s_headless = headless;
+}
+
 App *App::create(QQmlEngine *, QJSEngine *)
 {
     QQmlEngine::setObjectOwnership(instance(), QQmlEngine::CppOwnership);
@@ -20,10 +27,13 @@ App *App::create(QQmlEngine *, QJSEngine *)
 App::App(QObject *parent)
     : QObject(parent)
     , m_sms(&m_contacts)
+    , m_actions(&m_devices)
 {
     m_demo = qEnvironmentVariableIsSet("SLONNECT_DEMO");
     if (m_demo)
         m_sms.loadDemo();
+    // Demo mode must not put commands on a real phone.
+    m_actions.setRegistering(!m_demo && !s_headless);
     connect(&m_devices, &DeviceManager::currentChanged, this, &App::rebind);
     rebind();
 }
