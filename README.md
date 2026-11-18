@@ -10,6 +10,7 @@ itself, so it works alongside the stock KDE Connect tools.
 | Files     | `share`, `sftp`                      | Drag-and-drop or portal file picker to send, send links/text, received-files list, browse phone storage |
 | Clipboard | `clipboard`                          | Push the clipboard to the phone, history with per-item resend, auto-sync status |
 | Media     | `mprisremote`                        | Now playing with cover-art tint, seek, previous/play/next, volume, player switching |
+| Actions   | `runcommand`                         | Node-graph actions you trigger from the phone's Run command list: ring/ping/SMS/share, desktop notifications, shell, MPRIS, D-Bus calls, branching, waits, text formatting |
 | Device    | `battery`, `ping`, `findmyphone`, …  | Status, ring/ping, pairing, contact sync, and a list of plugins that aren't wired up yet |
 
 ## Build and run
@@ -38,7 +39,7 @@ Screen mirroring uses `scrcpy` and `adb`; the Nix package bundles both.
 
 ## Adding a feature
 
-The remaining KDE Connect plugins (notifications, remote input, run commands, presenter, …) are
+The remaining KDE Connect plugins (notifications, remote input, presenter, …) are
 small additions:
 
 1. Subclass `DevicePlugin` (`src/deviceplugin.h`): pass the plugin id, D-Bus path suffix and
@@ -47,8 +48,57 @@ small additions:
 3. Add a page under `qml/pages/` and an entry to `Features.destinations` (`qml/Features.qml`).
    Remove it from `Features.planned`.
 
+## Actions
+
+The Actions page builds small node graphs. Each enabled action is added to KDE Connect's
+**Run command** list for every paired phone (KDE Connect on the phone → this computer → Run command).
+Tapping it there runs the graph. Commands you added in KDE Connect's own settings are kept.
+
+- **Execution** starts at the *Phone command* node and follows the white flow wires. Coloured data
+  wires carry values; an unconnected input uses the value typed into the node. Pure nodes (Text,
+  Format, Math, Date & time) are evaluated when something reads them.
+- **Editor:** drag from a pin to connect, drag a connected input to move its wire, right-click a
+  pin to disconnect, double-click or right-click empty space to add a node, Delete removes the
+  selected node, Ctrl+D duplicates it. Wheel zooms, dragging the background pans.
+- **How it hooks in:** kdeconnectd keeps the list in
+  `~/.config/kdeconnect/<device>/kdeconnect_runcommand/config` and runs entries with `/bin/sh -c`.
+  Slonnect owns the entries whose key starts with `slonnect-`; each one runs
+  `slonnect --run-action <id> --device <device>`. That hands the action to the open Slonnect over
+  D-Bus (`dev.slonnect.Slonnect`, `/Actions`, `dev.slonnect.Actions.Run`), so the editor shows it
+  live. If Slonnect isn't open, it runs the action without a window and exits.
+- Actions are stored in `~/.config/slonnect/slonnect/actions.json`. The *Run log* under the
+  editor shows each step of the last run; failing nodes are outlined in red.
+- To add a node type, append a `NodeType` in `src/nodetypes.cpp`. The editor picks it up from the
+  catalogue.
+
+## Nix and Home Manager
+
+The flake ships Slonnect and a patched `kdeconnect-kde` (`packages.<system>.kdeconnect`, patches in
+`nix/`). The patch makes the presenter laser pointer a transparent wlr-layer-shell overlay on
+Wayland, instead of a fullscreen window that niri and others paint over a black backdrop.
+The Home Manager module replaces `services.kdeconnect`:
+
+```nix
+# flake inputs: slonnect.url = "...";
+home-manager.users.you = {
+  imports = [ inputs.slonnect.homeManagerModules.default ];
+  services.slonnect.enable = true;   # and drop services.kdeconnect
+  # services.slonnect.indicator = true;           # KDE Connect tray icon
+  # services.slonnect.hideKdeConnectApps = false; # keep KDE Connect's own app/SMS in launchers
+};
+```
+
+It runs the patched `kdeconnectd` as the same `kdeconnect.service` user unit, installs Slonnect,
+hides KDE Connect's own app and SMS client from launchers, and makes Slonnect the `sms:` handler
+(when `xdg.mimeApps.enable` is on). Phones still need TCP/UDP 1714–1764 open. On NixOS,
+`programs.kdeconnect.enable` (or a firewall rule) does that. `overlays.default` provides
+`pkgs.slonnect` and `pkgs.slonnect-kdeconnect` for other setups.
+
 ## Troubleshooting
 
+- **An action isn't on the phone:** the *Run command* plugin has to be enabled for this computer in
+  KDE Connect on the phone and on this computer (the Actions page says which). Slonnect asks
+  kdeconnectd to push the new list right away; reopening the device on the phone refreshes it.
 - **0 contacts / "phone didn't answer":** on the phone, open KDE Connect → this computer →
   Plugin settings and enable **Contacts synchronizer**. The Android Contacts permission alone
   isn't enough, and the desktop can't tell the plugin is off. It just never gets a reply.

@@ -1,0 +1,113 @@
+diff -ru a/plugins/presenter/CMakeLists.txt b/plugins/presenter/CMakeLists.txt
+--- a/plugins/presenter/CMakeLists.txt	2026-11-18 15:21:32.314052950 -0800
++++ b/plugins/presenter/CMakeLists.txt	2026-11-18 15:21:48.605104303 -0800
+@@ -10,3 +10,11 @@
+ )
+ 
+ install(FILES "kdeconnect_presenter_config.qml" DESTINATION ${KDE_INSTALL_DATADIR}/kdeconnect)
++
++# On Wayland, show the pointer as a transparent overlay layer surface instead of a
++# fullscreen toplevel (which compositors like niri paint over a black backdrop).
++find_package(LayerShellQt QUIET)
++if(LayerShellQt_FOUND)
++    target_link_libraries(kdeconnect_presenter LayerShellQt::Interface)
++    target_compile_definitions(kdeconnect_presenter PRIVATE HAVE_LAYER_SHELL=1)
++endif()
+diff -ru a/plugins/presenter/presenterplugin.cpp b/plugins/presenter/presenterplugin.cpp
+--- a/plugins/presenter/presenterplugin.cpp	2026-11-18 15:21:32.314082501 -0800
++++ b/plugins/presenter/presenterplugin.cpp	2026-11-18 15:21:48.622063645 -0800
+@@ -10,12 +10,18 @@
+ #include <KPluginFactory>
+ 
+ #include <QDBusConnection>
++#include <QGuiApplication>
++#include <QSurfaceFormat>
+ #include <QDebug>
+ #include <QQmlError>
+ #include <QQuickItem>
+ #include <QQuickView>
+ #include <QtGlobal>
+ 
++#ifdef HAVE_LAYER_SHELL
++#include <LayerShellQt/Window>
++#endif
++
+ #include "plugin_presenter_debug.h"
+ #include <QScreen>
+ #include <core/daemon.h>
+@@ -29,15 +35,39 @@
+     PresenterView(const QString &filename)
+         : m_current(filename)
+     {
+-        Qt::WindowFlags windowFlags = Qt::WindowFlags(Qt::WindowDoesNotAcceptFocus | Qt::WindowFullScreen | Qt::WindowStaysOnTopHint | Qt::FramelessWindowHint
+-                                                      | Qt::Tool | (int)(Qt::WA_TranslucentBackground));
++        // Transparency needs an alpha channel in the surface, not just a clear colour.
++        QSurfaceFormat surfaceFormat = format();
++        surfaceFormat.setAlphaBufferSize(8);
++        setFormat(surfaceFormat);
++        setColor(QColor(Qt::transparent));
++
++        Qt::WindowFlags windowFlags =
++            Qt::WindowFlags(Qt::WindowDoesNotAcceptFocus | Qt::WindowFullScreen | Qt::WindowStaysOnTopHint | Qt::FramelessWindowHint | Qt::Tool);
+ #ifdef Q_OS_WIN
+         windowFlags |= Qt::WindowTransparentForInput;
+ #endif
++
++#ifdef HAVE_LAYER_SHELL
++        if (QGuiApplication::platformName().startsWith(QLatin1String("wayland"))) {
++            if (auto *layer = LayerShellQt::Window::get(this)) {
++                // Above everything (fullscreen apps included), over the whole output,
++                // never taking keyboard focus or space from panels.
++                layer->setLayer(LayerShellQt::Window::LayerOverlay);
++                layer->setAnchors(LayerShellQt::Window::Anchors(LayerShellQt::Window::AnchorTop | LayerShellQt::Window::AnchorBottom
++                                                                | LayerShellQt::Window::AnchorLeft | LayerShellQt::Window::AnchorRight));
++                layer->setExclusiveZone(-1);
++                layer->setKeyboardInteractivity(LayerShellQt::Window::KeyboardInteractivityNone);
++                layer->setScope(QStringLiteral("kdeconnect-presenter"));
++                // Clicks go through to the slides underneath.
++                windowFlags |= Qt::WindowTransparentForInput;
++                m_layerShell = true;
++            }
++        }
++#endif
+         setFlags(windowFlags);
+-        setColor(QColor(Qt::transparent));
+ 
+-        setResizeMode(QQuickView::SizeViewToRootObject);
++        // The compositor sizes a layer surface from its anchors; the scene follows.
++        setResizeMode(m_layerShell ? QQuickView::SizeRootObjectToView : QQuickView::SizeViewToRootObject);
+         setSource(QUrl(QStringLiteral("qrc:/presenter/%1").arg(filename)));
+ 
+         const auto ourErrors = errors();
+@@ -46,6 +76,14 @@
+         }
+     }
+ 
++    void present()
++    {
++        if (m_layerShell)
++            show();
++        else
++            showFullScreen();
++    }
++
+     QString current() const
+     {
+         return m_current;
+@@ -53,6 +91,7 @@
+ 
+ private:
+     QString m_current;
++    bool m_layerShell = false;
+ };
+ 
+ PresenterPlugin::PresenterPlugin(QObject *parent, const QVariantList &args)
+@@ -81,7 +120,7 @@
+         m_view = new PresenterView(current);
+         m_xPos = 0.5f;
+         m_yPos = 0.5f;
+-        m_view->showFullScreen();
++        m_view->present();
+         connect(this, &QObject::destroyed, m_view, &QObject::deleteLater);
+         connect(m_timer, &QTimer::timeout, m_view, &QObject::deleteLater);
+     }

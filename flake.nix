@@ -10,7 +10,20 @@
     in {
       packages = forAll (pkgs: {
         default = pkgs.qt6Packages.callPackage ./nix/package.nix { };
+        slonnect = self.packages.${pkgs.stdenv.hostPlatform.system}.default;
+        # Patched kdeconnect-kde (see nix/kdeconnect.nix).
+        kdeconnect = pkgs.callPackage ./nix/kdeconnect.nix { };
       });
+
+      overlays.default = final: prev: {
+        slonnect = final.qt6Packages.callPackage ./nix/package.nix { };
+        slonnect-kdeconnect = final.callPackage ./nix/kdeconnect.nix { };
+      };
+
+      # Home Manager: `services.slonnect.enable = true;` runs the patched kdeconnectd
+      # and installs Slonnect. Replaces `services.kdeconnect`.
+      homeManagerModules.default = import ./nix/hm-module.nix self;
+      homeModules.default = self.homeManagerModules.default;
 
       devShells = forAll (pkgs: {
         default = pkgs.mkShell {
