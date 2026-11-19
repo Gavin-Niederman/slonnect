@@ -121,8 +121,13 @@ QtObject {
         const pad = n => (n < 10 ? "0" : "") + n
         return h > 0 ? h + ":" + pad(m) + ":" + pad(sec) : m + ":" + pad(sec)
     }
+    function isLetter(ch) { return ch.toLowerCase() !== ch.toUpperCase() || ch.charCodeAt(0) > 0x2E7F && ch.charCodeAt(0) < 0xD800 }
+    function hasLetter(s) { return Array.from(s || "").some(isLetter) }
     function initials(name) {
-        const parts = (name || "").replace(/[^\p{L}\p{N} ]/gu, "").trim().split(/\s+/)
+        // Keep letters and digits. (Qt's JS engine has no \p{…} regex escapes; a character
+        // with distinct upper and lower case is a letter, which covers most scripts.)
+        const keep = ch => isLetter(ch) || (ch >= "0" && ch <= "9") || ch === " "
+        const parts = Array.from(name || "").filter(keep).join("").trim().split(/\s+/)
         if (!parts.length || !parts[0])
             return ""
         return (parts[0][0] + (parts.length > 1 ? parts[parts.length - 1][0] : "")).toUpperCase()

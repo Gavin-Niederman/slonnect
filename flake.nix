@@ -13,11 +13,14 @@
         slonnect = self.packages.${pkgs.stdenv.hostPlatform.system}.default;
         # Patched kdeconnect-kde (see nix/kdeconnect.nix).
         kdeconnect = pkgs.callPackage ./nix/kdeconnect.nix { };
+        # Google Messages for Web helper (helpers/gmessages, AGPL-3.0).
+        gmessages = pkgs.callPackage ./nix/gmessages.nix { };
       });
 
       overlays.default = final: prev: {
         slonnect = final.qt6Packages.callPackage ./nix/package.nix { };
         slonnect-kdeconnect = final.callPackage ./nix/kdeconnect.nix { };
+        slonnect-gmessages = final.callPackage ./nix/gmessages.nix { };
       };
 
       # Home Manager: `services.slonnect.enable = true;` runs the patched kdeconnectd
@@ -28,7 +31,7 @@
       devShells = forAll (pkgs: {
         default = pkgs.mkShell {
           inputsFrom = [ self.packages.${pkgs.stdenv.hostPlatform.system}.default ];
-          packages = [ pkgs.qt6.qttools pkgs.gdb pkgs.scrcpy pkgs.android-tools ];
+          packages = [ pkgs.qt6.qttools pkgs.gdb pkgs.scrcpy pkgs.android-tools pkgs.go ];
           shellHook = ''
             export QML_IMPORT_PATH=${pkgs.qt6.qtdeclarative}/${pkgs.qt6.qtbase.qtQmlPrefix}
             # The packaged app gets plugin paths from wrapQtAppsHook; mirror that for ./build runs

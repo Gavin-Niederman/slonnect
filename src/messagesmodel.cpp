@@ -1,6 +1,7 @@
 #include "messagesmodel.h"
 #include "contactstore.h"
 #include "imagestore.h"
+#include "messagetypes.h"
 
 #include <QDateTime>
 #include <QFile>
@@ -19,7 +20,7 @@ MessagesModel::MessagesModel(ContactStore *contacts, QObject *parent)
     });
 }
 
-void MessagesModel::reset(qint64 threadId, bool multi)
+void MessagesModel::reset(const QString &threadId, bool multi)
 {
     beginResetModel();
     m_threadId = threadId;
@@ -30,58 +31,76 @@ void MessagesModel::reset(qint64 threadId, bool multi)
     endResetModel();
 }
 
-static bool isVCard(const QString &mime)
+int MessagesModel::rowOf(const QString &messageId) const
 {
-    return mime.contains(QLatin1String("vcard"), Qt::CaseInsensitive) || mime.contains(QLatin1String("x-vcf"), Qt::CaseInsensitive);
+    for (int i = 0; i < m_items.size(); ++i)
+        if (!m_items[i].pending && m_items[i].message.id == messageId)
+            return i;
+    return -1;
 }
 
-bool MessagesModel::add(const ConversationMessage &message)
+void MessagesModel::requestMedia(const SmsMessage &message)
 {
-    if (message.threadID != m_threadId)
-        return false;
-    if (m_known.contains(message.uID)) {
-        // Same row again, e.g. outbox -> sent/failed: refresh it in place.
-        for (int i = 0; i < m_items.size(); ++i) {
-            Item &item = m_items[i];
-            if (!item.pending && item.message.uID == message.uID && item.message.type != message.type) {
-                qCDebug(lcSms) << "status update: type" << item.message.type << "->" << message.type;
-                item.message.type = message.type;
-                Q_EMIT dataChanged(index(i), index(i), {StatusRole});
-                break;
-            }
+    for (const SmsAttachment &a : message.attachments) {
+        if (!a.thumbnail.isEmpty() && !ImageStore::instance()->contains(QStringLiteral("att/") + a.id))
+            ImageStore::instance()->insert(QStringLiteral("att/") + a.id, a.thumbnail);
+        if (a.remoteThumbnail && !m_thumbFiles.contains(a.id) && !m_thumbRequests.contains(a.id)) {
+            m_thumbRequests.insert(a.id);
+            Q_EMIT wantAttachment(a, true);
         }
-        return false;
-    }
-    m_known.insert(message.uID);
-
-    // A confirmed outgoing message replaces our optimistic bubble. Compare whitespace-
-    // normalised, since the phone may store line breaks differently than we sent them.
-    if (message.isOutgoing() && m_pendingCount > 0) {
-        const QString body = message.body.simplified();
-        bool matched = false;
-        for (int i = 0; i < m_items.size(); ++i) {
-            if (m_items[i].pending && m_items[i].message.body.simplified() == body) {
-                beginRemoveRows({}, i, i);
-                m_items.removeAt(i);
-                --m_pendingCount;
-                endRemoveRows();
-                if (i < m_items.size())
-                    touchNeighbours(i);
-                matched = true;
-                break;
-            }
-        }
-        qCDebug(lcSms) << "outgoing confirmation: matched" << matched << "type" << message.type << "len" << message.body.size()
-                       << "pendingLeft" << m_pendingCount << "ageMs" << QDateTime::currentMSecsSinceEpoch() - message.date;
-    }
-
-    for (const MessageAttachment &a : message.attachments) {
-        if (!a.base64Thumbnail.isEmpty() && !ImageStore::instance()->contains(QStringLiteral("att/") + a.uniqueIdentifier))
-            ImageStore::instance()->insert(QStringLiteral("att/") + a.uniqueIdentifier, QByteArray::fromBase64(a.base64Thumbnail.toLatin1()));
         // Contact cards are tiny; fetch eagerly so we can render them inline.
-        if (isVCard(a.mimeType) && !m_vcards.contains(a.uniqueIdentifier))
-            Q_EMIT wantAttachment(a.partID, a.uniqueIdentifier);
+        if (a.isVCard() && !m_vcards.contains(a.id))
+            Q_EMIT wantAttachment(a, false);
     }
+}
+
+bool MessagesModel::add(const SmsMessage &message)
+{
+    if (message.threadId != m_threadId)
+        return false;
+    if (m_known.contains(message.id)) {
+        // Same message again: outbox -> sent, delivered, read, reactions, late media.
+        const int i = rowOf(message.id);
+        if (i >= 0) {
+            Item &item = m_items[i];
+            const bool statusChanged = item.message.status != message.status;
+            if (statusChanged)
+                qCDebug(lcSms) << "status update:" << item.message.status << "->" << message.status;
+            const QList<int> roles{StatusRole, ErrorRole, ReactionsRole, AttachmentsRole, BodyRole};
+            item.message = message;
+            requestMedia(message);
+            Q_EMIT dataChanged(index(i), index(i), roles);
+        }
+        return false;
+    }
+    m_known.insert(message.id);
+
+    // A confirmed outgoing message replaces our optimistic bubble: by the ID we gave it
+    // when the backend echoes that, else by its text (whitespace-normalised, since the
+    // phone may store line breaks differently than we sent them).
+    if (message.outgoing && m_pendingCount > 0) {
+        const QString body = message.body.simplified();
+        int match = -1;
+        for (int i = 0; i < m_items.size() && match < 0; ++i) {
+            const Item &p = m_items[i];
+            if (!p.pending)
+                continue;
+            if (!message.tmpId.isEmpty() && !p.message.tmpId.isEmpty() ? p.message.tmpId == message.tmpId : p.message.body.simplified() == body)
+                match = i;
+        }
+        if (match >= 0) {
+            beginRemoveRows({}, match, match);
+            m_items.removeAt(match);
+            --m_pendingCount;
+            endRemoveRows();
+            if (match < m_items.size())
+                touchNeighbours(match);
+        }
+        qCDebug(lcSms) << "outgoing confirmation: matched" << (match >= 0) << "status" << message.status << "len" << message.body.size()
+                       << "pendingLeft" << m_pendingCount;
+    }
+
+    requestMedia(message);
 
     // Newest first: skip past pending items (always newest) and newer messages.
     int pos = 0;
@@ -94,13 +113,28 @@ bool MessagesModel::add(const ConversationMessage &message)
     return true;
 }
 
-void MessagesModel::addPending(const QString &body, const QStringList &attachmentPaths)
+void MessagesModel::remove(const QString &messageId)
 {
-    ConversationMessage m;
+    const int i = rowOf(messageId);
+    if (i < 0)
+        return;
+    beginRemoveRows({}, i, i);
+    m_items.removeAt(i);
+    endRemoveRows();
+    m_known.remove(messageId);
+    if (i < m_items.size())
+        touchNeighbours(i);
+}
+
+void MessagesModel::addPending(const QString &body, const QStringList &attachmentPaths, const QString &tmpId)
+{
+    SmsMessage m;
     m.body = body;
     m.date = QDateTime::currentMSecsSinceEpoch();
-    m.type = ConversationMessage::Queued;
-    m.threadID = m_threadId;
+    m.status = QStringLiteral("pending");
+    m.outgoing = true;
+    m.threadId = m_threadId;
+    m.tmpId = tmpId;
     beginInsertRows({}, 0, 0);
     m_items.prepend(Item{m, true, attachmentPaths});
     ++m_pendingCount;
@@ -108,18 +142,33 @@ void MessagesModel::addPending(const QString &body, const QStringList &attachmen
     touchNeighbours(0);
 }
 
-void MessagesModel::attachmentDownloaded(const QString &uniqueIdentifier, const QString &filePath)
+void MessagesModel::markFailed(const QString &tmpId, const QString &error)
 {
-    m_localFiles.insert(uniqueIdentifier, filePath);
     for (int i = 0; i < m_items.size(); ++i) {
-        for (const MessageAttachment &a : std::as_const(m_items[i].message.attachments)) {
-            if (a.uniqueIdentifier != uniqueIdentifier)
+        Item &item = m_items[i];
+        if (item.pending && item.message.tmpId == tmpId) {
+            item.message.status = QStringLiteral("failed");
+            item.message.error = error;
+            Q_EMIT dataChanged(index(i), index(i), {StatusRole, ErrorRole});
+        }
+    }
+}
+
+void MessagesModel::attachmentDownloaded(const QString &attachmentId, bool thumbnail, const QString &filePath)
+{
+    if (thumbnail)
+        m_thumbFiles.insert(attachmentId, filePath);
+    else
+        m_localFiles.insert(attachmentId, filePath);
+    for (int i = 0; i < m_items.size(); ++i) {
+        for (const SmsAttachment &a : std::as_const(m_items[i].message.attachments)) {
+            if (a.id != attachmentId)
                 continue;
-            if (isVCard(a.mimeType)) {
+            if (!thumbnail && a.isVCard()) {
                 QFile f(filePath);
                 if (f.open(QIODevice::ReadOnly)) {
-                    const Contact c = ContactStore::parseVCard(f.readAll(), QStringLiteral("card/") + uniqueIdentifier);
-                    m_vcards.insert(uniqueIdentifier,
+                    const Contact c = ContactStore::parseVCard(f.readAll(), QStringLiteral("card/") + attachmentId);
+                    m_vcards.insert(attachmentId,
                                     {{QStringLiteral("name"), c.name},
                                      {QStringLiteral("numbers"), c.numbers},
                                      {QStringLiteral("emails"), c.emails},
@@ -131,11 +180,34 @@ void MessagesModel::attachmentDownloaded(const QString &uniqueIdentifier, const 
     }
 }
 
+const SmsAttachment *MessagesModel::findAttachment(const QString &attachmentId) const
+{
+    for (const Item &item : m_items)
+        for (const SmsAttachment &a : item.message.attachments)
+            if (a.id == attachmentId)
+                return &a;
+    return nullptr;
+}
+
+const SmsMessage *MessagesModel::findMessage(const QString &messageId) const
+{
+    const int i = rowOf(messageId);
+    return i < 0 ? nullptr : &m_items.at(i).message;
+}
+
+QString MessagesModel::newestIncomingId() const
+{
+    for (const Item &item : m_items)
+        if (!item.pending && !item.message.outgoing)
+            return item.message.id;
+    return QString();
+}
+
 QString MessagesModel::senderOf(const Item &item) const
 {
-    if (item.message.isOutgoing() || item.pending)
+    if (item.message.outgoing || item.pending)
         return QString();
-    return item.message.addresses.isEmpty() ? QString() : item.message.addresses.first().address;
+    return item.message.sender;
 }
 
 bool MessagesModel::sameGroup(int a, int b) const
@@ -144,9 +216,12 @@ bool MessagesModel::sameGroup(int a, int b) const
         return false;
     const Item &x = m_items.at(a);
     const Item &y = m_items.at(b);
-    if (x.message.isOutgoing() != y.message.isOutgoing() || senderOf(x) != senderOf(y))
+    if ((x.message.outgoing || x.pending) != (y.message.outgoing || y.pending) || senderOf(x) != senderOf(y))
         return false;
     if (std::abs(x.message.date - y.message.date) > GroupGapMs)
+        return false;
+    // Reactions hang below a bubble; keep the gap after it.
+    if (!y.message.reactions.isEmpty())
         return false;
     return QDateTime::fromMSecsSinceEpoch(x.message.date).date() == QDateTime::fromMSecsSinceEpoch(y.message.date).date();
 }
@@ -183,25 +258,22 @@ QVariantList MessagesModel::attachmentsFor(const Item &item) const
         }
         return list;
     }
-    for (const MessageAttachment &a : item.message.attachments) {
-        QString kind = QStringLiteral("file");
-        if (a.mimeType.startsWith(QLatin1String("image/")))
-            kind = QStringLiteral("image");
-        else if (a.mimeType.startsWith(QLatin1String("video/")))
-            kind = QStringLiteral("video");
-        else if (a.mimeType.startsWith(QLatin1String("audio/")))
-            kind = QStringLiteral("audio");
-        else if (isVCard(a.mimeType))
-            kind = QStringLiteral("vcard");
-        QVariantMap m{{QStringLiteral("kind"), kind},
-                      {QStringLiteral("partId"), a.partID},
-                      {QStringLiteral("uid"), a.uniqueIdentifier},
+    for (const SmsAttachment &a : item.message.attachments) {
+        QString thumb;
+        if (!a.thumbnail.isEmpty())
+            thumb = ImageStore::urlFor(QStringLiteral("att/") + a.id);
+        else if (m_thumbFiles.contains(a.id))
+            thumb = QUrl::fromLocalFile(m_thumbFiles.value(a.id)).toString();
+        else if (a.kind() == QLatin1String("image") && m_localFiles.contains(a.id))
+            thumb = QUrl::fromLocalFile(m_localFiles.value(a.id)).toString();
+        QVariantMap m{{QStringLiteral("kind"), a.kind()},
+                      {QStringLiteral("id"), a.id},
                       {QStringLiteral("mimeType"), a.mimeType},
-                      {QStringLiteral("name"), a.uniqueIdentifier},
-                      {QStringLiteral("thumbnail"), a.base64Thumbnail.isEmpty() ? QString() : ImageStore::urlFor(QStringLiteral("att/") + a.uniqueIdentifier)},
-                      {QStringLiteral("localPath"), m_localFiles.value(a.uniqueIdentifier)}};
-        if (kind == QLatin1String("vcard"))
-            m[QStringLiteral("contact")] = m_vcards.value(a.uniqueIdentifier);
+                      {QStringLiteral("name"), a.name.isEmpty() ? a.id : a.name},
+                      {QStringLiteral("thumbnail"), thumb},
+                      {QStringLiteral("localPath"), m_localFiles.value(a.id)}};
+        if (a.isVCard())
+            m[QStringLiteral("contact")] = m_vcards.value(a.id);
         list << m;
     }
     return list;
@@ -218,7 +290,7 @@ QVariant MessagesModel::data(const QModelIndex &index, int role) const
         return {};
     const int row = index.row();
     const Item &item = m_items.at(row);
-    const ConversationMessage &m = item.message;
+    const SmsMessage &m = item.message;
     switch (role) {
     case Qt::DisplayRole:
     case BodyRole:
@@ -226,18 +298,16 @@ QVariant MessagesModel::data(const QModelIndex &index, int role) const
     case DateRole:
         return m.date;
     case OutgoingRole:
-        return item.pending || m.isOutgoing();
+        return item.pending || m.outgoing;
     case StatusRole:
-        if (item.pending || m.type == ConversationMessage::Outbox || m.type == ConversationMessage::Queued)
-            return QStringLiteral("pending");
-        if (m.type == ConversationMessage::Failed)
-            return QStringLiteral("failed");
-        return m.isOutgoing() ? QStringLiteral("sent") : QStringLiteral("received");
+        return m.status.isEmpty() ? (m.outgoing ? QStringLiteral("sent") : QStringLiteral("received")) : m.status;
     case SenderRole:
         return senderOf(item);
     case SenderNameRole: {
         const QString s = senderOf(item);
-        return s.isEmpty() ? QString() : m_contacts->nameFor(s);
+        if (s.isEmpty())
+            return m.senderName;
+        return m_contacts->isKnown(s) || m.senderName.isEmpty() ? m_contacts->nameFor(s) : m.senderName;
     }
     case SenderAvatarRole: {
         const QString s = senderOf(item);
@@ -256,6 +326,26 @@ QVariant MessagesModel::data(const QModelIndex &index, int role) const
         return !sameGroup(row, row - 1);
     case MultiRole:
         return m_multi;
+    case IdRole:
+        return item.pending ? QString() : m.id;
+    case ErrorRole:
+        return m.error;
+    case ReactionsRole:
+        return m.reactions;
+    case ReplyRole: {
+        if (m.replyTo.isEmpty())
+            return QVariant();
+        const int r = rowOf(m.replyTo);
+        if (r < 0)
+            return QVariantMap{{QStringLiteral("body"), tr("Earlier message")}, {QStringLiteral("sender"), QString()}};
+        const Item &orig = m_items.at(r);
+        QString body = orig.message.body;
+        if (body.isEmpty() && !orig.message.attachments.isEmpty())
+            body = tr("Attachment");
+        const QString from = senderOf(orig);
+        return QVariantMap{{QStringLiteral("body"), body},
+                           {QStringLiteral("sender"), from.isEmpty() ? tr("You") : (orig.message.senderName.isEmpty() ? m_contacts->nameFor(from) : orig.message.senderName)}};
+    }
     }
     return {};
 }
@@ -275,5 +365,9 @@ QHash<int, QByteArray> MessagesModel::roleNames() const
         {GroupStartRole, "groupStart"},
         {GroupEndRole, "groupEnd"},
         {MultiRole, "multi"},
+        {IdRole, "messageId"},
+        {ErrorRole, "error"},
+        {ReactionsRole, "reactions"},
+        {ReplyRole, "reply"},
     };
 }

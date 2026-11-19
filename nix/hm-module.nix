@@ -62,6 +62,20 @@ in
       description = "Hide KDE Connect's own app and SMS client from application launchers.";
     };
 
+    googleMessages = {
+      enable = lib.mkEnableOption ''
+        the Google Messages for Web helper (slonnect-gm), so Slonnect can use Google
+        Messages instead of KDE Connect for SMS/RCS (chosen in Slonnect's Settings).
+        It is AGPL-3.0 and talks to Google's servers with your Google session'';
+
+      package = lib.mkOption {
+        type = lib.types.package;
+        default = self.packages.${system}.gmessages;
+        defaultText = lib.literalExpression "slonnect.packages.\${system}.gmessages";
+        description = "The slonnect-gm package.";
+      };
+    };
+
     smsHandler = lib.mkOption {
       type = lib.types.bool;
       default = true;
@@ -113,6 +127,27 @@ in
 
       xdg.dataFile = lib.mkIf cfg.hideKdeConnectApps (lib.listToAttrs (map hiddenEntry hidden));
     }
+
+    (lib.mkIf cfg.googleMessages.enable {
+      # Also D-Bus activatable (share/dbus-1/services), but running it as a service
+      # keeps the session alive, and messages arriving, while Slonnect is closed.
+      home.packages = [ cfg.googleMessages.package ];
+      systemd.user.services.slonnect-gm = {
+        Unit = {
+          Description = "Google Messages for Web helper for Slonnect";
+          After = [ "graphical-session.target" ];
+          PartOf = [ "graphical-session.target" ];
+        };
+        Install.WantedBy = [ "graphical-session.target" ];
+        Service = {
+          Type = "dbus";
+          BusName = "dev.slonnect.GMessages";
+          ExecStart = lib.getExe cfg.googleMessages.package;
+          Restart = "on-failure";
+          RestartSec = 10;
+        };
+      };
+    })
 
     (lib.mkIf cfg.indicator {
       systemd.user.services.kdeconnect-indicator = {

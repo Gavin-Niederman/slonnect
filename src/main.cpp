@@ -101,7 +101,7 @@ int main(int argc, char *argv[])
         if (window && qEnvironmentVariableIsSet("SLONNECT_PAGE"))
             QMetaObject::invokeMethod(window, "go", Q_ARG(QVariant, qEnvironmentVariable("SLONNECT_PAGE")));
         if (const QString thread = qEnvironmentVariable("SLONNECT_THREAD"); !thread.isEmpty())
-            QTimer::singleShot(1500, &app, [thread] { App::instance()->sms()->openThread(thread.toLongLong()); });
+            QTimer::singleShot(1500, &app, [thread] { App::instance()->sms()->openThread(thread); });
         QTimer::singleShot(qEnvironmentVariableIntegerValue("SLONNECT_SCREENSHOT_DELAY").value_or(3000), &app, [window, shot] {
             if (window)
                 window->grabWindow().save(shot);
@@ -128,7 +128,7 @@ int main(int argc, char *argv[])
                 report("no-conversations");
                 return QCoreApplication::exit(2);
             }
-            sms->openThread(c->data(c->index(0, 0), ConversationsModel::ThreadIdRole).toLongLong());
+            sms->openThread(c->data(c->index(0, 0), ConversationsModel::ThreadIdRole).toString());
         });
         QTimer::singleShot(12000, &app, [sms, report] {
             report("first-page");

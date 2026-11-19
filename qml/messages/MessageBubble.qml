@@ -18,7 +18,14 @@ Item {
     required property bool groupStart
     required property bool groupEnd
     required property bool multi
+    required property string messageId
+    required property string error
+    required property var reactions
+    required property var reply
     signal toast(string text)
+
+    readonly property var quickReactions: ["👍", "❤️", "😂", "😮", "😢", "🙏"]
+    readonly property bool canAct: messageId.length > 0 && status !== "pending" && status !== "failed"
 
     readonly property int sideMargin: 16
     readonly property int avatarSlot: outgoing ? 0 : 40
@@ -69,8 +76,11 @@ Item {
         }
 
         Item {
+            id: bubbleRow
             width: parent.width
             height: bubble.height
+
+            HoverHandler { id: rowHover }
 
             Avatar {
                 visible: !root.outgoing && root.groupEnd
@@ -100,6 +110,44 @@ Item {
                     id: content
                     padding: root.hasBody ? 0 : 0
                     spacing: 4
+
+                    // The message this one answers.
+                    Rectangle {
+                        visible: !!root.reply && root.reply.body !== undefined
+                        x: 8
+                        width: Math.min(Math.max(quoteSender.implicitWidth, quoteBody.implicitWidth, 100) + 24, root.maxBubble - 16)
+                        height: visible ? quoteCol.implicitHeight + 12 : 0
+                        radius: 12
+                        color: root.outgoing ? Theme.alpha(Theme.primaryFg, 0.15) : Theme.alpha(Theme.surfaceFg, 0.07)
+                        Rectangle { width: 3; radius: 2; height: parent.height - 12; anchors.verticalCenter: parent.verticalCenter; x: 6; color: root.outgoing ? Theme.primaryFg : Theme.primary }
+                        Column {
+                            id: quoteCol
+                            x: 14; y: 6
+                            width: parent.width - 20
+                            Text {
+                                id: quoteSender
+                                width: parent.width
+                                text: root.reply ? root.reply.sender || "" : ""
+                                visible: text.length > 0
+                                color: root.textColor
+                                font.pixelSize: Theme.labelMedium
+                                font.weight: Font.Medium
+                                elide: Text.ElideRight
+                            }
+                            Text {
+                                id: quoteBody
+                                width: parent.width
+                                text: root.reply ? root.reply.body || "" : ""
+                                color: root.textColor
+                                opacity: 0.8
+                                font.pixelSize: Theme.bodyMedium
+                                maximumLineCount: 2
+                                elide: Text.ElideRight
+                                wrapMode: Text.Wrap
+                                textFormat: Text.PlainText
+                            }
+                        }
+                    }
 
                     Repeater {
                         model: root.attachments
@@ -133,12 +181,36 @@ Item {
                     acceptedButtons: Qt.RightButton
                     onTapped: menuLoader.active = true
                 }
+                TapHandler {
+                    enabled: App.sms.canReact && root.canAct
+                    onDoubleTapped: App.sms.react(root.messageId, "❤️")
+                }
                 Loader {
                     id: menuLoader
                     active: false
                     onLoaded: item.popup()
                     sourceComponent: B.Menu {
                         onClosed: menuLoader.active = false
+                        B.MenuItem {
+                            text: qsTr("Reply")
+                            visible: App.sms.canReply && root.canAct
+                            height: visible ? implicitHeight : 0
+                            onTriggered: App.sms.setReplyTo(root.messageId)
+                        }
+                        Row {
+                            visible: App.sms.canReact && root.canAct
+                            height: visible ? 40 : 0
+                            leftPadding: 8
+                            Repeater {
+                                model: root.quickReactions
+                                delegate: B.ToolButton {
+                                    required property string modelData
+                                    text: modelData
+                                    font.pixelSize: 20
+                                    onClicked: { App.sms.react(root.messageId, modelData); menuLoader.item.close() }
+                                }
+                            }
+                        }
                         B.MenuItem {
                             text: qsTr("Copy text")
                             enabled: root.hasBody
@@ -149,6 +221,60 @@ Item {
                             enabled: root.hasBody && App.clipboard.available
                             onTriggered: { App.clipboard.sendText(root.body); root.toast(qsTr("Sent to phone clipboard")) }
                         }
+                    }
+                }
+            }
+
+            // Reply / react, next to the bubble while hovering.
+            Row {
+                visible: rowHover.hovered && root.canAct && (App.sms.canReply || App.sms.canReact)
+                anchors.verticalCenter: bubble.verticalCenter
+                x: root.outgoing ? bubble.x - width - 4 : bubble.x + bubble.width + 4
+                IconButton {
+                    visible: App.sms.canReact
+                    iconName: "add_reaction"; iconSize: 20; implicitWidth: 32; implicitHeight: 32
+                    tooltip: qsTr("React")
+                    onClicked: menuLoader.active = true
+                }
+                IconButton {
+                    visible: App.sms.canReply
+                    iconName: "reply"; iconSize: 20; implicitWidth: 32; implicitHeight: 32
+                    tooltip: qsTr("Reply")
+                    onClicked: App.sms.setReplyTo(root.messageId)
+                }
+            }
+        }
+
+        // Reactions, tucked under the bubble. Tap one to add or take back yours.
+        Flow {
+            visible: root.reactions && root.reactions.length > 0
+            width: Math.min(root.maxBubble, parent.width - 2 * root.sideMargin)
+            x: root.outgoing ? parent.width - root.sideMargin - Math.min(width, childrenRect.width) - 8 : root.sideMargin + root.avatarSlot + 8
+            spacing: 4
+            topPadding: 2
+            Repeater {
+                model: root.reactions || []
+                delegate: B.AbstractButton {
+                    id: chip
+                    required property var modelData
+                    implicitHeight: 26
+                    implicitWidth: chipText.implicitWidth + 16
+                    hoverEnabled: true
+                    onClicked: App.sms.react(root.messageId, modelData.emoji)
+                    background: Rectangle {
+                        radius: 13
+                        color: chip.modelData.mine ? Theme.secondaryContainer : Theme.surfaceContainerHighest
+                        border.width: 1
+                        border.color: Theme.surface
+                        StateLayer { hovered: chip.hovered; pressed: chip.pressed }
+                    }
+                    contentItem: Text {
+                        id: chipText
+                        horizontalAlignment: Text.AlignHCenter
+                        verticalAlignment: Text.AlignVCenter
+                        text: chip.modelData.emoji + (chip.modelData.count > 1 ? " " + chip.modelData.count : "")
+                        color: chip.modelData.mine ? Theme.secondaryContainerFg : Theme.surfaceFg
+                        font.pixelSize: Theme.labelLarge
                     }
                 }
             }
@@ -163,7 +289,9 @@ Item {
             topPadding: 2
             bottomPadding: 4
             text: root.status === "pending" ? qsTr("Sending…")
-                : root.status === "failed" ? qsTr("Not sent")
+                : root.status === "failed" ? (root.error ? qsTr("Not sent: %1").arg(root.error) : qsTr("Not sent"))
+                : root.status === "read" ? qsTr("%1 · Read").arg(Theme.timeOfDay(root.date))
+                : root.status === "delivered" ? qsTr("%1 · Delivered").arg(Theme.timeOfDay(root.date))
                 : Theme.timeOfDay(root.date)
             color: root.status === "failed" ? Theme.error : Theme.surfaceVariantFg
             font.pixelSize: Theme.labelSmall

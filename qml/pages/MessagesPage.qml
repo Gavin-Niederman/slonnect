@@ -8,7 +8,7 @@ Item {
     id: page
     property var window
     readonly property bool narrow: width < 860
-    readonly property bool threadOpen: App.sms.currentThread >= 0 || App.sms.composing
+    readonly property bool threadOpen: App.sms.threadOpen
 
     ConversationList {
         id: list

@@ -17,8 +17,8 @@ Item {
     function open() {
         if (modelData.localPath)
             Qt.openUrlExternally("file://" + modelData.localPath)
-        else if (modelData.partId !== undefined)
-            App.sms.openAttachment(modelData.partId, modelData.uid)
+        else if (modelData.id)
+            App.sms.openAttachment(modelData.id)
     }
 
     width: visual ? thumbSize.width : kind === "vcard" ? Math.min(280, maxWidth) : Math.min(fileRow.implicitWidth + 24, maxWidth)

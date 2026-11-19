@@ -13,37 +13,45 @@ ConversationsModel::ConversationsModel(ContactStore *contacts, QObject *parent)
     });
 }
 
-int ConversationsModel::indexOf(qint64 threadId) const
+int ConversationsModel::indexOf(const QString &threadId) const
 {
     for (int i = 0; i < m_rows.size(); ++i)
-        if (m_rows.at(i).threadID == threadId)
+        if (m_rows.at(i).id == threadId)
             return i;
     return -1;
 }
 
 int ConversationsModel::insertPosition(qint64 date) const
 {
-    auto it = std::lower_bound(m_rows.cbegin(), m_rows.cend(), date, [](const ConversationMessage &m, qint64 d) { return m.date > d; });
+    auto it = std::lower_bound(m_rows.cbegin(), m_rows.cend(), date, [](const SmsThread &m, qint64 d) { return m.date > d; });
     return int(it - m_rows.cbegin());
 }
 
-void ConversationsModel::upsert(const ConversationMessage &message)
+void ConversationsModel::upsert(const SmsThread &thread)
 {
-    const int existing = indexOf(message.threadID);
+    const int existing = indexOf(thread.id);
     if (existing < 0) {
-        const int pos = insertPosition(message.date);
+        const int pos = insertPosition(thread.date);
         beginInsertRows({}, pos, pos);
-        m_rows.insert(pos, message);
+        m_rows.insert(pos, thread);
         endInsertRows();
         return;
     }
-    if (m_rows.at(existing).date > message.date)
-        return; // older message for a thread we already have; not the head
-
-    m_rows[existing] = message;
+    const SmsThread &old = m_rows.at(existing);
+    if (old.date > thread.date)
+        return; // an older message for a thread we already have; not the head
+    SmsThread merged = thread;
+    // Keep what the newer data doesn't carry.
+    if (merged.title.isEmpty())
+        merged.title = old.title;
+    if (merged.avatar.isEmpty())
+        merged.avatar = old.avatar;
+    if (merged.participantIds.isEmpty())
+        merged.participantIds = old.participantIds;
+    m_rows[existing] = merged;
     // Find the new slot ignoring the row itself.
     int target = existing;
-    while (target > 0 && m_rows.at(target - 1).date < message.date)
+    while (target > 0 && m_rows.at(target - 1).date < thread.date)
         --target;
     if (target != existing) {
         beginMoveRows({}, existing, existing, {}, target);
@@ -53,7 +61,7 @@ void ConversationsModel::upsert(const ConversationMessage &message)
     Q_EMIT dataChanged(index(target), index(target));
 }
 
-void ConversationsModel::remove(qint64 threadId)
+void ConversationsModel::remove(const QString &threadId)
 {
     const int row = indexOf(threadId);
     if (row < 0)
@@ -70,7 +78,7 @@ void ConversationsModel::clear()
     endResetModel();
 }
 
-const ConversationMessage *ConversationsModel::find(qint64 threadId) const
+const SmsThread *ConversationsModel::find(const QString &threadId) const
 {
     const int row = indexOf(threadId);
     return row < 0 ? nullptr : &m_rows.at(row);
@@ -84,13 +92,24 @@ static QSet<QString> normalizedSet(const QStringList &addresses)
     return set;
 }
 
-qint64 ConversationsModel::threadFor(const QStringList &addresses) const
+QString ConversationsModel::threadFor(const QStringList &addresses) const
 {
     const auto wanted = normalizedSet(addresses);
-    for (const auto &m : m_rows)
-        if (normalizedSet(m.addressList()) == wanted)
-            return m.threadID;
-    return -1;
+    for (const auto &t : m_rows)
+        if (normalizedSet(t.addresses) == wanted)
+            return t.id;
+    return QString();
+}
+
+QString ConversationsModel::titleFor(const SmsThread &thread) const
+{
+    // A 1:1 contact we know by name reads best; otherwise the backend's title
+    // (group names, names from the phone's own contacts) beats bare numbers.
+    if (thread.addresses.size() == 1 && m_contacts->isKnown(thread.addresses.first()))
+        return m_contacts->nameFor(thread.addresses.first());
+    if (!thread.title.isEmpty())
+        return thread.title;
+    return titleFor(thread.addresses);
 }
 
 QString ConversationsModel::titleFor(const QStringList &addresses) const
@@ -120,44 +139,49 @@ QVariant ConversationsModel::data(const QModelIndex &index, int role) const
 {
     if (!index.isValid() || index.row() >= m_rows.size())
         return {};
-    const ConversationMessage &m = m_rows.at(index.row());
+    const SmsThread &t = m_rows.at(index.row());
     switch (role) {
     case ThreadIdRole:
-        return m.threadID;
+        return t.id;
     case BodyRole: {
-        if (!m.body.isEmpty())
-            return m.body.simplified();
-        if (!m.attachments.isEmpty()) {
-            const QString mime = m.attachments.first().mimeType;
-            if (mime.startsWith(QLatin1String("image/")))
-                return tr("Photo");
-            if (mime.startsWith(QLatin1String("video/")))
-                return tr("Video");
-            if (mime.contains(QLatin1String("vcard")))
-                return tr("Contact card");
-            return tr("Attachment");
-        }
-        return QString();
+        if (!t.snippet.isEmpty())
+            return t.snippet;
+        const QString &mime = t.attachmentMime;
+        if (mime.isEmpty())
+            return QString();
+        if (mime.startsWith(QLatin1String("image/")))
+            return tr("Photo");
+        if (mime.startsWith(QLatin1String("video/")))
+            return tr("Video");
+        if (mime.contains(QLatin1String("vcard")))
+            return tr("Contact card");
+        return tr("Attachment");
     }
     case DateRole:
-        return m.date;
+        return t.date;
     case ReadRole:
-        return m.read != 0;
+        return t.read;
     case OutgoingRole:
-        return m.isOutgoing();
+        return t.outgoing;
     case AddressesRole:
-        return m.addressList();
+        return t.addresses;
     case MultiRole:
-        return m.isMultiTarget() || m.addresses.size() > 1;
+        return t.multi;
     case Qt::DisplayRole:
     case TitleRole:
-        return titleFor(m.addressList());
-    case AvatarRole:
-        return m.addresses.size() == 1 ? m_contacts->avatarFor(m.addresses.first().address) : QString();
+        return titleFor(t);
+    case AvatarRole: {
+        if (t.addresses.size() != 1)
+            return QString();
+        const QString mine = m_contacts->avatarFor(t.addresses.first());
+        return mine.isEmpty() ? t.avatar : mine;
+    }
     case AttachmentRole:
-        return !m.attachments.isEmpty();
+        return !t.attachmentMime.isEmpty();
     case SearchRole:
-        return titleFor(m.addressList()) + QLatin1Char('\n') + m.addressList().join(QLatin1Char(' ')) + QLatin1Char('\n') + m.body;
+        return titleFor(t) + QLatin1Char('\n') + t.addresses.join(QLatin1Char(' ')) + QLatin1Char('\n') + t.snippet;
+    case RcsRole:
+        return t.rcs;
     }
     return {};
 }
@@ -175,6 +199,7 @@ QHash<int, QByteArray> ConversationsModel::roleNames() const
         {TitleRole, "title"},
         {AvatarRole, "avatar"},
         {AttachmentRole, "hasAttachment"},
+        {RcsRole, "rcs"},
     };
 }
 

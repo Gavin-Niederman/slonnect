@@ -30,7 +30,7 @@ Rectangle {
     // the open thread, or the next one opened.
     property string carry
     function prefill(text) {
-        if (App.sms.currentThread >= 0 || App.sms.composing) {
+        if (App.sms.threadOpen) {
             input.text = text
             input.forceActiveFocus()
         } else {
@@ -40,7 +40,7 @@ Rectangle {
 
     // Drafts survive switching threads.
     property var drafts: ({})
-    property string draftKey: App.sms.currentThread >= 0 ? "t" + App.sms.currentThread : "n" + App.sms.currentAddresses.join(",")
+    property string draftKey: App.sms.currentThread ? "t" + App.sms.currentThread : "n" + App.sms.currentAddresses.join(",")
     onDraftKeyChanged: {
         input.text = carry || drafts[draftKey] || ""
         carry = ""
@@ -59,6 +59,52 @@ Rectangle {
         anchors.bottom: parent.bottom
         anchors.margins: 12
         spacing: 8
+
+        // Replying to…
+        Rectangle {
+            visible: !!App.sms.replyTo.id
+            width: parent.width - 52
+            x: 52
+            height: visible ? 52 : 0
+            radius: 16
+            color: Theme.surfaceContainerHigh
+            Rectangle { width: 3; radius: 2; height: parent.height - 16; anchors.verticalCenter: parent.verticalCenter; x: 10; color: Theme.primary }
+            Column {
+                anchors.left: parent.left
+                anchors.leftMargin: 22
+                anchors.right: cancelReply.left
+                anchors.verticalCenter: parent.verticalCenter
+                Text { width: parent.width; text: qsTr("Replying to %1").arg(App.sms.replyTo.sender || ""); color: Theme.primary; font.pixelSize: Theme.labelMedium; font.weight: Font.Medium; elide: Text.ElideRight }
+                Text { width: parent.width; text: App.sms.replyTo.body || ""; color: Theme.surfaceVariantFg; font.pixelSize: Theme.bodyMedium; elide: Text.ElideRight; textFormat: Text.PlainText }
+            }
+            IconButton {
+                id: cancelReply
+                anchors.right: parent.right
+                anchors.verticalCenter: parent.verticalCenter
+                iconName: "close"
+                tooltip: qsTr("Cancel reply")
+                onClicked: App.sms.clearReply()
+            }
+        }
+
+        // Which SIM to send from, on dual-SIM phones (Google Messages).
+        Row {
+            visible: App.sms.sims.length > 1
+            x: 52
+            spacing: 8
+            Repeater {
+                model: App.sms.sims
+                delegate: Chip {
+                    required property var modelData
+                    checkable: true
+                    checked: App.sms.sim === modelData.id || (!App.sms.sim && index === 0)
+                    required property int index
+                    iconName: "sim_card"
+                    text: modelData.carrier || modelData.number || qsTr("SIM %1").arg(index + 1)
+                    onClicked: App.sms.sim = modelData.id
+                }
+            }
+        }
 
         // Pending attachments
         Flow {
@@ -135,7 +181,12 @@ Rectangle {
                         background: null
                         topPadding: 13
                         bottomPadding: 13
-                        onTextChanged: root.drafts[root.draftKey] = text
+                        onTextChanged: {
+                            root.drafts[root.draftKey] = text
+                            if (text.length > 0 && activeFocus)
+                                App.sms.userTyping()
+                        }
+                        Keys.onEscapePressed: App.sms.clearReply()
                         function handleEnter(event) {
                             if (event.modifiers & Qt.ShiftModifier)
                                 event.accepted = false

@@ -44,6 +44,9 @@ public:
     QSortFilterProxyModel *filtered() { return &m_filtered; }
 
     void setDevice(const QString &deviceId, bool contactsPluginLoaded);
+    // Contacts known to the messaging backend (Google Messages), used where the
+    // synced vCards have nothing for a number. Empty to drop them.
+    void setExternal(const QList<Contact> &contacts);
 
     // Display name for a phone number / email / RCS business address.
     Q_INVOKABLE QString nameFor(const QString &address) const;
@@ -69,13 +72,16 @@ private Q_SLOTS:
 
 private:
     void reload();
+    void rebuild();
 
     QString m_deviceId;
     QString m_dir;
     bool m_pluginLoaded = false;
     bool m_syncing = false;
     bool m_phoneSilent = false;
-    QList<Contact> m_contacts;
+    QList<Contact> m_contacts; // m_synced plus the external ones that add something
+    QList<Contact> m_synced;
+    QList<Contact> m_external;
     QHash<QString, int> m_byNumber;
     QFileSystemWatcher m_watcher;
     QTimer m_reloadTimer;

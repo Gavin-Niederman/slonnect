@@ -16,7 +16,7 @@ Rectangle {
     color: colors[0]
 
     readonly property string letters: Theme.initials(name)
-    readonly property bool hasLetters: letters.length > 0 && /\p{L}/u.test(letters)
+    readonly property bool hasLetters: Theme.hasLetter(letters)
 
     Text {
         anchors.centerIn: parent

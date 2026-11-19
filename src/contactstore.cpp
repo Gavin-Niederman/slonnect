@@ -28,6 +28,40 @@ ContactStore::ContactStore(QObject *parent)
     m_filtered.sort(0);
 }
 
+void ContactStore::rebuild()
+{
+    beginResetModel();
+    m_contacts = m_synced;
+    m_byNumber.clear();
+    auto index = [this](int i) {
+        for (const QString &n : std::as_const(m_contacts[i].numbers))
+            m_byNumber.insert(normalize(n), i);
+        for (const QString &e : std::as_const(m_contacts[i].emails))
+            m_byNumber.insert(normalize(e), i);
+    };
+    for (int i = 0; i < m_contacts.size(); ++i)
+        index(i);
+    // Contacts from the messaging backend fill in numbers the synced vCards don't have.
+    for (const Contact &c : std::as_const(m_external)) {
+        bool known = false;
+        for (const QString &n : c.numbers)
+            known = known || m_byNumber.contains(normalize(n));
+        if (known)
+            continue;
+        m_contacts << c;
+        index(int(m_contacts.size()) - 1);
+    }
+    endResetModel();
+    Q_EMIT countChanged();
+    Q_EMIT contactsChanged();
+}
+
+void ContactStore::setExternal(const QList<Contact> &contacts)
+{
+    m_external = contacts;
+    rebuild();
+}
+
 void ContactStore::setDevice(const QString &deviceId, bool contactsPluginLoaded)
 {
     if (deviceId == m_deviceId && contactsPluginLoaded == m_pluginLoaded)
@@ -97,18 +131,8 @@ void ContactStore::reload()
         watcher->deleteLater();
         if (generation != m_generation)
             return; // superseded by a newer reload / device switch
-        beginResetModel();
-        m_contacts = watcher->result();
-        m_byNumber.clear();
-        for (int i = 0; i < m_contacts.size(); ++i) {
-            for (const QString &n : std::as_const(m_contacts[i].numbers))
-                m_byNumber.insert(normalize(n), i);
-            for (const QString &e : std::as_const(m_contacts[i].emails))
-                m_byNumber.insert(normalize(e), i);
-        }
-        endResetModel();
-        Q_EMIT countChanged();
-        Q_EMIT contactsChanged();
+        m_synced = watcher->result();
+        rebuild();
     });
     watcher->setFuture(QtConcurrent::run([dir] {
         QList<Contact> result;

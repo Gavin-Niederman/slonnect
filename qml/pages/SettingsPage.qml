@@ -292,6 +292,166 @@ Item {
                 }
             }
 
+            // Messages backend
+            SectionHeader { text: qsTr("Messages") }
+            Card {
+                id: msgCard
+                width: parent.width
+                style: "outlined"
+                implicitHeight: msgCol.implicitHeight + 32
+                readonly property var gm: App.gmessages
+                readonly property bool useGm: App.sms.backend === "gmessages"
+                readonly property bool signedOut: gm.state === "logged_out" || gm.state === "needs_relogin"
+                readonly property string stateText: !gm.helperRunning ? qsTr("Helper not running")
+                    : gm.state === "ready" ? qsTr("Connected")
+                    : gm.state === "connecting" ? qsTr("Connecting…")
+                    : gm.state === "pairing" ? qsTr("Pairing…")
+                    : gm.state === "phone_offline" ? qsTr("Phone offline")
+                    : gm.state === "inactive" ? qsTr("Open in another browser")
+                    : gm.state === "needs_relogin" ? qsTr("Sign in again")
+                    : qsTr("Not signed in")
+                Column {
+                    id: msgCol
+                    width: parent.width
+                    spacing: 8
+                    OptionRow {
+                        title: qsTr("Send and receive messages through")
+                        subtitle: msgCard.useGm ? qsTr("Google Messages for Web: full RCS (reactions, replies, typing, read receipts) from anywhere. Google Messages on the phone relays everything, so the phone must stay online. KDE Connect still handles notifications, files and the rest.")
+                                                : qsTr("KDE Connect's SMS plugin, over your local network or VPN.")
+                        Chip { checkable: true; checked: !msgCard.useGm; text: qsTr("KDE Connect"); onClicked: App.sms.backend = "kdeconnect" }
+                        Chip { checkable: true; checked: msgCard.useGm; text: qsTr("Google Messages"); onClicked: App.sms.backend = "gmessages" }
+                    }
+
+                    // Status
+                    OptionRow {
+                        visible: msgCard.useGm
+                        title: msgCard.stateText + (msgCard.gm.account ? " · " + msgCard.gm.account : "")
+                        subtitle: msgCard.gm.error || (msgCard.gm.secrets === "file" ? qsTr("No Secret Service is running, so the session is kept in a file only you can read.") : "")
+                        Button3 {
+                            style: "filled"; iconName: "devices"; text: qsTr("Use here")
+                            visible: msgCard.gm.state === "inactive"
+                            onClicked: msgCard.gm.takeOver()
+                        }
+                        Button3 {
+                            style: "tonal"; iconName: "refresh"; text: qsTr("Start helper")
+                            visible: !msgCard.gm.helperRunning
+                            onClicked: msgCard.gm.ensureRunning()
+                        }
+                        Button3 {
+                            style: "text"; iconName: "logout"; text: qsTr("Sign out")
+                            visible: msgCard.gm.helperRunning && !msgCard.signedOut && msgCard.gm.state !== "pairing"
+                            onClicked: msgCard.gm.logout()
+                        }
+                    }
+
+                    // Pairing: the emoji to tap on the phone.
+                    Column {
+                        visible: msgCard.useGm && msgCard.gm.state === "pairing"
+                        width: parent.width
+                        spacing: 8
+                        Text {
+                            anchors.horizontalCenter: parent.horizontalCenter
+                            visible: msgCard.gm.emoji.length > 0
+                            text: msgCard.gm.emoji
+                            font.pixelSize: 72
+                        }
+                        B.BusyIndicator {
+                            anchors.horizontalCenter: parent.horizontalCenter
+                            visible: msgCard.gm.emoji.length === 0
+                            running: visible
+                        }
+                        Text {
+                            width: parent.width
+                            horizontalAlignment: Text.AlignHCenter
+                            wrapMode: Text.Wrap
+                            text: msgCard.gm.emoji ? qsTr("Google Messages on your phone now shows a few emoji. Tap the one shown here.")
+                                                   : qsTr("Contacting Google and your phone…")
+                            color: Theme.surfaceFg
+                            font.pixelSize: Theme.bodyLarge
+                        }
+                        Button3 { anchors.horizontalCenter: parent.horizontalCenter; style: "text"; text: qsTr("Cancel"); onClicked: msgCard.gm.cancelLogin() }
+                    }
+
+                    // Sign in
+                    Column {
+                        visible: msgCard.useGm && msgCard.gm.helperRunning && msgCard.signedOut
+                        width: parent.width
+                        spacing: 8
+                        Text {
+                            width: parent.width
+                            wrapMode: Text.Wrap
+                            textFormat: Text.StyledText
+                            color: Theme.surfaceVariantFg
+                            font.pixelSize: Theme.bodyMedium
+                            lineHeight: 1.2
+                            text: qsTr("Google Messages needs your Google session cookies once:<br>"
+                                     + "1. In a <b>private Firefox window</b>, open the sign-in page below and sign in. (Chrome's device-bound cookies usually don't work.)<br>"
+                                     + "2. When messages.google.com shows its config page, press F12 → Network, reload, right-click the <b>config</b> request → Copy → <b>Copy as cURL</b>.<br>"
+                                     + "3. Paste it here and press Connect, then tap the matching emoji on your phone. Close the private window afterwards without signing out.")
+                        }
+                        Row {
+                            spacing: 8
+                            Button3 {
+                                style: "tonal"; iconName: "open_in_new"; text: qsTr("Open sign-in page")
+                                onClicked: Qt.openUrlExternally("https://accounts.google.com/AccountChooser?continue=https://messages.google.com/web/config")
+                            }
+                            Button3 {
+                                style: "text"; iconName: "content_copy"; text: qsTr("Copy link")
+                                onClicked: { App.clipboard.copy("https://accounts.google.com/AccountChooser?continue=https://messages.google.com/web/config"); page.window.toast(qsTr("Copied")) }
+                            }
+                        }
+                        Rectangle {
+                            width: parent.width
+                            height: 120
+                            radius: Theme.radiusM
+                            color: Theme.surfaceContainerHigh
+                            B.ScrollView {
+                                anchors.fill: parent
+                                anchors.margins: 8
+                                B.TextArea {
+                                    id: cookieField
+                                    placeholderText: qsTr("Paste the cURL command (or a Cookie header, or a JSON object of cookies)")
+                                    placeholderTextColor: Theme.surfaceVariantFg
+                                    color: Theme.surfaceFg
+                                    font.family: "monospace"
+                                    font.pixelSize: Theme.labelMedium
+                                    wrapMode: TextEdit.WrapAnywhere
+                                    background: null
+                                    selectionColor: Theme.alpha(Theme.primary, 0.35)
+                                }
+                            }
+                        }
+                        Text {
+                            width: parent.width
+                            visible: text.length > 0
+                            wrapMode: Text.Wrap
+                            text: msgCard.gm.loginError
+                            color: Theme.error
+                            font.pixelSize: Theme.bodyMedium
+                        }
+                        Row {
+                            spacing: 8
+                            Button3 {
+                                style: "filled"; iconName: "login"; text: qsTr("Connect")
+                                enabled: cookieField.text.trim().length > 0
+                                // The cookies go to the helper once and aren't kept in the field.
+                                onClicked: { msgCard.gm.startLogin(cookieField.text); cookieField.text = "" }
+                            }
+                        }
+                    }
+
+                    OptionRow {
+                        visible: msgCard.useGm && !msgCard.signedOut
+                        title: qsTr("Take the session back automatically")
+                        subtitle: qsTr("If Google Messages is opened in a browser, it becomes the active session and this computer stops getting messages. With this on, Slonnect takes it back after a few seconds.")
+                        Switch3 {
+                            checked: msgCard.gm.autoReactivate
+                            onToggled: msgCard.gm.autoReactivate = checked
+                        }
+                    }
+                }
+            }
+
             // Devices by address
             SectionHeader { text: qsTr("Devices by address") }
             Card {

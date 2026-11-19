@@ -31,6 +31,7 @@ class App : public QObject
     Q_PROPERTY(Device *device READ device NOTIFY deviceChanged)
     Q_PROPERTY(ContactStore *contacts READ contacts CONSTANT)
     Q_PROPERTY(SmsPlugin *sms READ sms CONSTANT)
+    Q_PROPERTY(GMessagesBackend *gmessages READ gmessages CONSTANT)
     Q_PROPERTY(SharePlugin *share READ share CONSTANT)
     Q_PROPERTY(ClipboardPlugin *clipboard READ clipboard CONSTANT)
     Q_PROPERTY(MediaPlugin *media READ media CONSTANT)
@@ -59,6 +60,7 @@ public:
     Device *device() const { return m_devices.current(); }
     ContactStore *contacts() { return &m_contacts; }
     SmsPlugin *sms() { return &m_sms; }
+    GMessagesBackend *gmessages() { return m_sms.gmessages(); }
     SharePlugin *share() { return &m_share; }
     ClipboardPlugin *clipboard() { return &m_clipboard; }
     MediaPlugin *media() { return &m_media; }

@@ -139,3 +139,8 @@ install_mobile
 notifications_off
 keyboard_return
 backspace
+add_reaction
+done_all
+sim_card
+login
+logout

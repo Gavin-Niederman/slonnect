@@ -1,6 +1,6 @@
 #pragma once
 
-#include "messagetypes.h"
+#include "smstypes.h"
 
 #include <QAbstractListModel>
 #include <QSortFilterProxyModel>
@@ -28,6 +28,7 @@ public:
         AvatarRole,
         AttachmentRole,
         SearchRole,
+        RcsRole,
     };
 
     explicit ConversationsModel(ContactStore *contacts, QObject *parent = nullptr);
@@ -36,22 +37,25 @@ public:
     QVariant data(const QModelIndex &index, int role) const override;
     QHash<int, QByteArray> roleNames() const override;
 
-    void upsert(const ConversationMessage &message);
-    void remove(qint64 threadId);
+    // Newer data for a thread replaces the row; an older head is ignored.
+    void upsert(const SmsThread &thread);
+    void remove(const QString &threadId);
     void clear();
 
-    const ConversationMessage *find(qint64 threadId) const;
-    // Thread whose participants match `addresses` exactly (normalised), or -1.
-    qint64 threadFor(const QStringList &addresses) const;
+    const SmsThread *find(const QString &threadId) const;
+    // Thread whose participants match `addresses` exactly (normalised), or "".
+    QString threadFor(const QStringList &addresses) const;
 
     QString titleFor(const QStringList &addresses) const;
+    // The backend's name for the thread when it has one, else ours from contacts.
+    QString titleFor(const SmsThread &thread) const;
 
 private:
-    int indexOf(qint64 threadId) const;
+    int indexOf(const QString &threadId) const;
     int insertPosition(qint64 date) const;
 
     ContactStore *m_contacts;
-    QList<ConversationMessage> m_rows;
+    QList<SmsThread> m_rows;
 };
 
 class ConversationsFilter : public QSortFilterProxyModel

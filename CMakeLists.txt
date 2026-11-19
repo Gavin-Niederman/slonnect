@@ -14,6 +14,10 @@ qt_add_executable(slonnect
     src/main.cpp
     src/kdeconnect.h src/kdeconnect.cpp
     src/messagetypes.h src/messagetypes.cpp
+    src/smstypes.h src/smstypes.cpp
+    src/messagingbackend.h
+    src/kdeconnectbackend.h src/kdeconnectbackend.cpp
+    src/gmessagesbackend.h src/gmessagesbackend.cpp
     src/deviceplugin.h src/deviceplugin.cpp
     src/device.h src/device.cpp
     src/devicemanager.h src/devicemanager.cpp

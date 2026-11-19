@@ -13,7 +13,7 @@ Rectangle {
     function prefill(text) { composer.prefill(text) }
 
     color: Theme.surface
-    readonly property bool active: App.sms.currentThread >= 0 || App.sms.composing
+    readonly property bool active: App.sms.threadOpen
     readonly property var addresses: App.sms.currentAddresses
 
     // --- header ---------------------------------------------------------------
@@ -43,7 +43,7 @@ Rectangle {
             anchors.verticalCenter: parent.verticalCenter
             size: 40
             name: App.sms.currentTitle
-            source: root.addresses.length === 1 ? App.contacts.avatarFor(root.addresses[0]) : ""
+            source: App.sms.currentAvatar
             fallbackIcon: root.addresses.length > 1 ? "group" : "person"
         }
         Column {
@@ -62,11 +62,13 @@ Rectangle {
             }
             Text {
                 width: parent.width
-                visible: text.length > 0 && text !== App.sms.currentTitle
-                text: root.addresses.length === 1 ? App.contacts.isKnown(root.addresses[0]) ? root.addresses[0] : ""
-                                                 : qsTr("%n people", "", root.addresses.length)
+                readonly property string who: root.addresses.length === 1 ? (Theme.hasLetter(App.sms.currentTitle) ? root.addresses[0] : "")
+                                                                         : qsTr("%n people", "", root.addresses.length)
+                visible: text.length > 0
+                text: App.sms.typing.length > 0 ? qsTr("%1 is typing…").arg(App.sms.typing.join(", "))
+                    : [who, App.sms.currentRcs ? qsTr("RCS") : ""].filter(x => x).join(" · ")
                 elide: Text.ElideRight
-                color: Theme.surfaceVariantFg
+                color: App.sms.typing.length > 0 ? Theme.primary : Theme.surfaceVariantFg
                 font.pixelSize: Theme.bodyMedium
             }
         }

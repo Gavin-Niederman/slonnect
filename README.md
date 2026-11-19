@@ -6,7 +6,7 @@ itself, so it works alongside the stock KDE Connect tools.
 
 | Page          | KDE Connect plugin(s)                | What it does |
 |---------------|--------------------------------------|--------------|
-| Messages      | `sms` (conversations), `contacts`    | SMS/MMS/RCS threads with paging, group chats, image/video/file attachments, sending with attachments, sharing contacts as vCards (and rendering received ones as cards), drafts per thread |
+| Messages      | `sms` (conversations), `contacts`, or Google Messages | SMS/MMS/RCS threads with paging, group chats, image/video/file attachments, sending with attachments, sharing contacts as vCards (and rendering received ones as cards), drafts per thread. Through Google Messages also reactions, replies, typing, delivered/read receipts and SIM choice |
 | Alerts        | `notifications`                      | The phone's notifications: reply, copy, dismiss, dismiss all; count on the rail |
 | Files         | `share`, `sftp`                      | Drag-and-drop or portal file picker to send, send links/text, received-files list, browse phone storage |
 | Clipboard     | `clipboard`                          | Push the clipboard to the phone, history with per-item resend, auto-sync status |
@@ -50,6 +50,23 @@ Slonnect runs one window: a second launch hands its arguments to the running one
   (`QtConcurrent`, async image provider).
 - Media position is extrapolated in QML from one timestamp, so playback isn't polled.
 - Pages are created on first visit and then kept alive.
+
+## Google Messages
+
+Messages can come from KDE Connect (default) or from **Google Messages for Web**, picked in
+Settings → Messages. The second goes through `slonnect-gm` (`helpers/gmessages`, Go,
+AGPL-3.0), a session-bus helper built on libgm from mautrix-gmessages. It gives full RCS
+from anywhere the phone is online, at the price of a cookie-copying sign-in and a
+reverse-engineered protocol that Google can change. See `helpers/gmessages/README.md`.
+
+In Slonnect, `SmsPlugin` owns the models and the open thread and drives one
+`MessagingBackend` at a time: `KdeConnectBackend` or `GMessagesBackend`. Both turn their data
+into `SmsThread` / `SmsMessage` (`src/smstypes.h`). The two never mix, since their thread IDs
+are unrelated. Features one backend lacks (reactions, replies, typing) just don't show.
+Notifications, files and everything else stay with KDE Connect either way.
+
+To try it without a Google account: `slonnect-gm --demo &`, then
+`SLONNECT_DEMO=1 SLONNECT_MESSAGES_BACKEND=gmessages ./build/slonnect`.
 
 ## Adding a feature
 
@@ -105,6 +122,7 @@ home-manager.users.you = {
   services.slonnect.enable = true;   # and drop services.kdeconnect
   # services.slonnect.indicator = true;           # KDE Connect tray icon
   # services.slonnect.hideKdeConnectApps = false; # keep KDE Connect's own app/SMS in launchers
+  # services.slonnect.googleMessages.enable = true; # Google Messages helper (see "Google Messages")
 };
 ```
 
@@ -145,8 +163,8 @@ start-on-boot or an automation app can keep it on). To find the phone, Slonnect 
 
 ## Demo mode
 
-`SLONNECT_DEMO=1` swaps in synthetic conversations and clipboard history and never reads real
-messages, contacts or clipboard. Settings go to a separate `slonnect-demo` profile. For headless checks:
+`SLONNECT_DEMO=1` swaps in synthetic conversations, notifications and clipboard history and never
+reads real messages, notifications, contacts or clipboard. Settings go to a separate `slonnect-demo` profile. For headless checks:
 
 ```sh
 QT_QPA_PLATFORM=offscreen SLONNECT_DEMO=1 SLONNECT_PAGE=media SLONNECT_SCREENSHOT=out.png ./build/slonnect
