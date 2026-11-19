@@ -11,7 +11,7 @@ class SharePlugin : public DevicePlugin
     QML_ELEMENT
     QML_UNCREATABLE("Use App.share")
     Q_PROPERTY(QVariantList received READ received NOTIFY receivedChanged)
-    Q_PROPERTY(QString incomingFolder READ incomingFolder NOTIFY availableChanged)
+    Q_PROPERTY(QString incomingFolder READ incomingFolder NOTIFY incomingFolderChanged)
 
 public:
     explicit SharePlugin(QObject *parent = nullptr);
@@ -28,6 +28,7 @@ public:
     Q_INVOKABLE void clearReceived();
 
 Q_SIGNALS:
+    void incomingFolderChanged();
     void receivedChanged();
     void fileReceived(const QString &name);
 

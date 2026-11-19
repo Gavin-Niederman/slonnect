@@ -8,6 +8,7 @@ Item {
     id: root
     property string title
     property bool multiple: true
+    property bool directory: false
     signal picked(var urls)
 
     function open() { portal.open() }
@@ -15,9 +16,15 @@ Item {
     PortalFileDialog {
         id: portal
         title: root.title
-        multiple: root.multiple
+        multiple: root.multiple && !root.directory
+        directory: root.directory
         onAccepted: (urls) => root.picked(urls)
-        onUnavailable: fallback.open()
+        onUnavailable: root.directory ? folderFallback.open() : fallback.open()
+    }
+    FolderDialog {
+        id: folderFallback
+        title: root.title
+        onAccepted: root.picked([selectedFolder.toString()])
     }
     FileDialog {
         id: fallback

@@ -8,6 +8,9 @@ kdePackages.kdeconnect-kde.overrideAttrs (old: {
     # Presenter laser pointer: transparent wlr-layer-shell overlay on Wayland instead
     # of a fullscreen toplevel (black backdrop on niri and others).
     ./kdeconnect-presenter-layer-shell.patch
+    # KDECONNECT_APP / KDECONNECT_SMS_APP: let another client stand in for kdeconnect-app
+    # (pairing notification, the phone's "add command") and kdeconnect-sms.
+    ./kdeconnect-app-override.patch
   ];
   buildInputs = (old.buildInputs or [ ]) ++ [ kdePackages.layer-shell-qt ];
 })

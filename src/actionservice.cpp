@@ -1,5 +1,6 @@
 #include "actionservice.h"
 #include "actionstore.h"
+#include "app.h"
 
 #include <QDBusConnection>
 #include <QDBusConnectionInterface>
@@ -48,4 +49,23 @@ QStringList ActionService::List() const
         out << idx.data(ActionStore::IdRole).toString() + QLatin1Char('\t') + idx.data(ActionStore::NameRole).toString();
     }
     return out;
+}
+
+bool AppService::registerObject()
+{
+    return QDBusConnection::sessionBus().registerObject(ObjectPath, this, QDBusConnection::ExportScriptableSlots);
+}
+
+bool AppService::forward(const QStringList &args)
+{
+    auto msg = QDBusMessage::createMethodCall(ActionService::ServiceName, ObjectPath, QStringLiteral("dev.slonnect.App"), QStringLiteral("Activate"));
+    msg.setArguments({args});
+    // A headless --run-action instance may hold the name but has no /App: that errors
+    // out at once and we start a window as usual.
+    return QDBusConnection::sessionBus().call(msg, QDBus::Block, 3000).type() == QDBusMessage::ReplyMessage;
+}
+
+void AppService::Activate(const QStringList &args)
+{
+    App::instance()->handleArguments(args);
 }

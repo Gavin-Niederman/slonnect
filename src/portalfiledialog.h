@@ -13,6 +13,7 @@ class PortalFileDialog : public QObject
     Q_PROPERTY(QString title MEMBER m_title NOTIFY changed)
     Q_PROPERTY(QString acceptLabel MEMBER m_acceptLabel NOTIFY changed)
     Q_PROPERTY(bool multiple MEMBER m_multiple NOTIFY changed)
+    Q_PROPERTY(bool directory MEMBER m_directory NOTIFY changed)
     Q_PROPERTY(bool busy READ busy NOTIFY busyChanged)
 
 public:
@@ -38,5 +39,6 @@ private:
     QString m_title;
     QString m_acceptLabel;
     bool m_multiple = true;
+    bool m_directory = false;
     QString m_handle;
 };

@@ -21,6 +21,8 @@ ApplicationWindow {
     color: Theme.surface
 
     property int currentPage: 0
+    // Plugin whose settings to show when Settings opens (from --plugin-config).
+    property string focusPlugin
     property var visited: ({ 0: true })
     readonly property var destinations: Features.destinations
 
@@ -41,9 +43,29 @@ ApplicationWindow {
         }
     }
 
+    Shortcut { sequence: "Ctrl+,"; onActivated: window.go("settings") }
+
     Connections {
         target: App
         function onShowMessages() { window.go("messages") }
+        // Another launch (kdeconnect-app/-sms style flags, sms: links) handed us its arguments.
+        function onActivateRequested(page, plugin) {
+            if (plugin)
+                window.focusPlugin = plugin
+            if (page)
+                window.go(page)
+            window.show()
+            window.raise()
+            window.requestActivate()
+        }
+    }
+    Connections {
+        target: App.devices
+        function onPairingFailed(name, error) { window.toast(qsTr("Pairing with %1 failed: %2").arg(name).arg(error)) }
+    }
+    Connections {
+        target: App.virtualMonitor
+        function onFailed(error) { window.toast(error) }
     }
     Connections {
         target: App.device
@@ -68,9 +90,16 @@ ApplicationWindow {
             Layout.fillHeight: true
             destinations: window.destinations
             currentIndex: window.currentPage
+            badges: ({ notifications: App.notifications.count, device: App.devices.pairingRequest ? 1 : 0 })
             onActivated: index => window.currentPage = index
             header: DeviceBadge { onClicked: window.go("device") }
 
+            IconButton {
+                iconName: "settings"
+                tooltip: qsTr("Settings (Ctrl+,)")
+                checked: window.destinations[window.currentPage].key === "settings"
+                onClicked: window.go("settings")
+            }
             IconButton {
                 iconName: Theme.mode === "dark" ? "dark_mode" : Theme.mode === "light" ? "light_mode" : "brightness_auto"
                 tooltip: qsTr("Theme: %1").arg(Theme.mode)

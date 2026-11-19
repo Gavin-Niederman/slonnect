@@ -36,3 +36,24 @@ public Q_SLOTS:
 private:
     ActionStore *m_store;
 };
+
+// dev.slonnect.App on the same bus name: a second `slonnect ...` launch hands its
+// command line to the running window and exits.
+//
+//   busctl --user call dev.slonnect.Slonnect /App dev.slonnect.App Activate as 2 --page device
+class AppService : public QObject
+{
+    Q_OBJECT
+    Q_CLASSINFO("D-Bus Interface", "dev.slonnect.App")
+
+public:
+    static inline const QString ObjectPath = QStringLiteral("/App");
+
+    using QObject::QObject;
+    bool registerObject();
+    // Hand `args` to a running Slonnect window. False when there is none.
+    static bool forward(const QStringList &args);
+
+public Q_SLOTS:
+    Q_SCRIPTABLE void Activate(const QStringList &args);
+};

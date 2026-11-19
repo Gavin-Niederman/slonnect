@@ -8,15 +8,17 @@
 #include <QUrl>
 
 static const QString BatteryIface = QStringLiteral("org.kde.kdeconnect.device.battery");
+static const QString ConnectivityIface = QStringLiteral("org.kde.kdeconnect.device.connectivity_report");
 
 Device::Device(const QString &id, QObject *parent)
     : QObject(parent)
     , m_id(id)
 {
     auto bus = kdc::bus();
-    for (const char *sig : {"reachableChanged", "nameChanged", "pairStateChanged", "typeChanged", "linksChanged"})
+    for (const char *sig : {"reachableChanged", "nameChanged", "pairStateChanged", "typeChanged", "linksChanged", "pluginsChanged"})
         bus.connect(kdc::Service, path(), kdc::DeviceIface, QLatin1String(sig), this, SLOT(refresh()));
     bus.connect(kdc::Service, path(), kdc::DeviceIface, QStringLiteral("pluginsChanged"), this, SLOT(refreshPlugins()));
+    bus.connect(kdc::Service, path(), kdc::DeviceIface, QStringLiteral("pairingFailed"), this, SLOT(onPairingFailed(QString)));
     refresh();
     refreshPlugins();
 }
@@ -24,10 +26,12 @@ Device::Device(const QString &id, QObject *parent)
 Device::~Device()
 {
     auto bus = kdc::bus();
-    for (const char *sig : {"reachableChanged", "nameChanged", "pairStateChanged", "typeChanged", "linksChanged"})
+    for (const char *sig : {"reachableChanged", "nameChanged", "pairStateChanged", "typeChanged", "linksChanged", "pluginsChanged"})
         bus.disconnect(kdc::Service, path(), kdc::DeviceIface, QLatin1String(sig), this, SLOT(refresh()));
     bus.disconnect(kdc::Service, path(), kdc::DeviceIface, QStringLiteral("pluginsChanged"), this, SLOT(refreshPlugins()));
+    bus.disconnect(kdc::Service, path(), kdc::DeviceIface, QStringLiteral("pairingFailed"), this, SLOT(onPairingFailed(QString)));
     connectBattery(false);
+    connectConnectivity(false);
 }
 
 QString Device::path() const
@@ -46,6 +50,9 @@ void Device::refresh()
         m_pairRequestedByPeer = p.value(QStringLiteral("isPairRequestedByPeer")).toBool();
         m_verificationKey = p.value(QStringLiteral("verificationKey")).toString();
         m_addresses = p.value(QStringLiteral("reachableAddresses")).toStringList();
+        m_providers = p.value(QStringLiteral("activeProviderNames")).toStringList();
+        m_supportedPlugins = p.value(QStringLiteral("supportedPlugins")).toStringList();
+        m_supportedPlugins.sort();
         Q_EMIT changed();
     });
 }
@@ -58,6 +65,7 @@ void Device::refreshPlugins()
         if (plugins != m_loadedPlugins) {
             m_loadedPlugins = plugins;
             connectBattery(hasPlugin(QStringLiteral("kdeconnect_battery")));
+            connectConnectivity(hasPlugin(QStringLiteral("kdeconnect_connectivity_report")));
             Q_EMIT pluginsChanged();
         }
     });
@@ -77,6 +85,45 @@ void Device::connectBattery(bool on)
         m_hasBattery = false;
         Q_EMIT batteryChanged();
     }
+}
+
+void Device::connectConnectivity(bool on)
+{
+    if (on == m_connectivityConnected)
+        return;
+    m_connectivityConnected = on;
+    const QString reportPath = path() + QStringLiteral("/connectivity_report");
+    if (on) {
+        kdc::bus().connect(kdc::Service, reportPath, ConnectivityIface, QStringLiteral("refreshed"), this, SLOT(onConnectivityRefreshed(QString, int)));
+        kdc::getAll(reportPath, ConnectivityIface, this, [this](const QVariantMap &p) {
+            onConnectivityRefreshed(p.value(QStringLiteral("cellularNetworkType")).toString(), p.value(QStringLiteral("cellularNetworkStrength"), -1).toInt());
+        });
+    } else {
+        kdc::bus().disconnect(kdc::Service, reportPath, ConnectivityIface, QStringLiteral("refreshed"), this, SLOT(onConnectivityRefreshed(QString, int)));
+        m_signalStrength = -1;
+        m_networkType.clear();
+    }
+    Q_EMIT connectivityChanged();
+}
+
+void Device::onConnectivityRefreshed(const QString &type, int strength)
+{
+    m_networkType = type;
+    m_signalStrength = strength;
+    Q_EMIT connectivityChanged();
+}
+
+void Device::onPairingFailed(const QString &error)
+{
+    Q_EMIT pairingFailed(error);
+}
+
+void Device::loadEncryptionInfo()
+{
+    kdc::call(path(), kdc::DeviceIface, QStringLiteral("encryptionInfo"), {}, this, [this](const QDBusMessage &reply) {
+        m_encryptionInfo = reply.arguments().value(0).toString().trimmed();
+        Q_EMIT encryptionInfoChanged();
+    });
 }
 
 void Device::refreshBattery()

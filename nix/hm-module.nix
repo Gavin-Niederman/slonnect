@@ -95,6 +95,14 @@ in
         Service = {
           ExecStart = "${cfg.kdeconnectPackage}/bin/kdeconnectd";
           Restart = "on-abort";
+          # Where kdeconnectd would launch KDE Connect's own app (pairing notification,
+          # the phone asking to add a command) or its SMS client, open Slonnect instead.
+          # Needs this flake's patched daemon; the stock one ignores these.
+          Environment = [
+            "KDECONNECT_APP=${lib.getExe cfg.package}"
+            "KDECONNECT_APP_DESKTOP=dev.slonnect.Slonnect"
+            "KDECONNECT_SMS_APP=${lib.getExe cfg.package}"
+          ];
         };
       };
 

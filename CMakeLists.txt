@@ -37,6 +37,9 @@ qt_add_executable(slonnect
     src/nodes_p.h src/systemnodes.cpp
     src/dbusintrospect.h src/dbusintrospect.cpp
     src/completer.h src/completer.cpp
+    src/notificationsplugin.h src/notificationsplugin.cpp
+    src/remoteplugins.h src/remoteplugins.cpp
+    src/settings.h src/settings.cpp
 )
 
 target_compile_definitions(slonnect PRIVATE

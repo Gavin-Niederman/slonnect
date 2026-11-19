@@ -10,6 +10,7 @@ Rectangle {
     signal toast(string text)
 
     function addAttachment(path) { composer.addAttachment(path) }
+    function prefill(text) { composer.prefill(text) }
 
     color: Theme.surface
     readonly property bool active: App.sms.currentThread >= 0 || App.sms.composing
@@ -79,11 +80,6 @@ Rectangle {
                 tooltip: qsTr("Copy number")
                 visible: root.addresses.length === 1
                 onClicked: { App.clipboard.copy(root.addresses[0]); root.toast(qsTr("Copied %1").arg(root.addresses[0])) }
-            }
-            IconButton {
-                iconName: "phone_android"
-                tooltip: qsTr("Open messages on phone")
-                onClicked: App.sms.launchPhoneApp()
             }
         }
         Rectangle {

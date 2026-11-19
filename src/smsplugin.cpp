@@ -219,11 +219,6 @@ void SmsPlugin::openAttachment(qint64 partId, const QString &uniqueIdentifier)
     downloadAttachment(partId, uniqueIdentifier);
 }
 
-void SmsPlugin::launchPhoneApp()
-{
-    kdc::call(path() + QStringLiteral("/sms"), QStringLiteral("org.kde.kdeconnect.device.sms"), QStringLiteral("launchApp"));
-}
-
 void SmsPlugin::handleMessage(const ConversationMessage &m, bool created)
 {
     const ConversationMessage *previousHead = m_model.find(m.threadID);

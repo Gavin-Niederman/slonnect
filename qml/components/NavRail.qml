@@ -23,66 +23,82 @@ Rectangle {
         spacing: 8
     }
 
-    Column {
+    // Scrolls when the window is too short for every destination.
+    Flickable {
+        id: flick
         anchors.top: headerColumn.bottom
         anchors.topMargin: 24
-        anchors.horizontalCenter: parent.horizontalCenter
-        spacing: 12
+        anchors.bottom: footerColumn.top
+        anchors.bottomMargin: 8
+        anchors.left: parent.left
+        anchors.right: parent.right
+        contentWidth: width
+        contentHeight: destColumn.implicitHeight
+        interactive: contentHeight > height
+        boundsBehavior: Flickable.StopAtBounds
+        clip: interactive
 
-        Repeater {
-            model: root.destinations
-            delegate: B.AbstractButton {
-                id: item
-                required property var modelData
-                required property int index
-                readonly property bool selected: root.currentIndex === index
-                width: 80
-                height: 56
-                hoverEnabled: true
-                focusPolicy: Qt.TabFocus
-                onClicked: root.activated(index)
+        Column {
+            id: destColumn
+            anchors.horizontalCenter: parent.horizontalCenter
+            spacing: 12
 
-                Rectangle {
-                    id: pill
-                    width: item.selected ? 56 : 32
-                    height: 32
-                    radius: 16
-                    anchors.horizontalCenter: parent.horizontalCenter
-                    anchors.top: parent.top
-                    color: item.selected ? Theme.secondaryContainer : "transparent"
-                    Behavior on width { NumberAnimation { duration: Theme.durationMedium; easing.type: Easing.OutCubic } }
-                    StateLayer { hovered: item.hovered; pressed: item.pressed; tint: Theme.surfaceFg; width: 56; anchors.fill: undefined; height: 32; anchors.centerIn: parent }
-                    Icon {
-                        anchors.centerIn: parent
-                        name: item.modelData.icon
-                        filled: item.selected
-                        color: item.selected ? Theme.secondaryContainerFg : Theme.surfaceVariantFg
-                    }
+            Repeater {
+                model: root.destinations
+                delegate: B.AbstractButton {
+                    id: item
+                    required property var modelData
+                    required property int index
+                    readonly property bool selected: root.currentIndex === index
+                    visible: modelData.rail !== false
+                    width: 80
+                    height: 56
+                    hoverEnabled: true
+                    focusPolicy: Qt.TabFocus
+                    onClicked: root.activated(index)
+
                     Rectangle {
-                        readonly property int count: root.badges[item.modelData.key] || 0
-                        visible: count > 0
-                        anchors.right: parent.right; anchors.top: parent.top
-                        anchors.rightMargin: item.selected ? 8 : -4; anchors.topMargin: -2
-                        width: Math.max(16, badgeText.implicitWidth + 8); height: 16; radius: 8
-                        color: Theme.error
-                        Text {
-                            id: badgeText
+                        id: pill
+                        width: item.selected ? 56 : 32
+                        height: 32
+                        radius: 16
+                        anchors.horizontalCenter: parent.horizontalCenter
+                        anchors.top: parent.top
+                        color: item.selected ? Theme.secondaryContainer : "transparent"
+                        Behavior on width { NumberAnimation { duration: Theme.durationMedium; easing.type: Easing.OutCubic } }
+                        StateLayer { hovered: item.hovered; pressed: item.pressed; tint: Theme.surfaceFg; width: 56; anchors.fill: undefined; height: 32; anchors.centerIn: parent }
+                        Icon {
                             anchors.centerIn: parent
-                            text: parent.count > 99 ? "99+" : parent.count
-                            color: Theme.dark ? "#601410" : "#FFFFFF"
-                            font.pixelSize: Theme.labelSmall
-                            font.weight: Font.Medium
+                            name: item.modelData.icon
+                            filled: item.selected
+                            color: item.selected ? Theme.secondaryContainerFg : Theme.surfaceVariantFg
+                        }
+                        Rectangle {
+                            readonly property int count: root.badges[item.modelData.key] || 0
+                            visible: count > 0
+                            anchors.right: parent.right; anchors.top: parent.top
+                            anchors.rightMargin: item.selected ? 8 : -4; anchors.topMargin: -2
+                            width: Math.max(16, badgeText.implicitWidth + 8); height: 16; radius: 8
+                            color: Theme.error
+                            Text {
+                                id: badgeText
+                                anchors.centerIn: parent
+                                text: parent.count > 99 ? "99+" : parent.count
+                                color: Theme.dark ? "#601410" : "#FFFFFF"
+                                font.pixelSize: Theme.labelSmall
+                                font.weight: Font.Medium
+                            }
                         }
                     }
-                }
-                Text {
-                    anchors.top: pill.bottom
-                    anchors.topMargin: 4
-                    anchors.horizontalCenter: parent.horizontalCenter
-                    text: item.modelData.title
-                    color: item.selected ? Theme.surfaceFg : Theme.surfaceVariantFg
-                    font.pixelSize: Theme.labelMedium
-                    font.weight: item.selected ? Font.Bold : Font.Medium
+                    Text {
+                        anchors.top: pill.bottom
+                        anchors.topMargin: 4
+                        anchors.horizontalCenter: parent.horizontalCenter
+                        text: item.modelData.title
+                        color: item.selected ? Theme.surfaceFg : Theme.surfaceVariantFg
+                        font.pixelSize: Theme.labelMedium
+                        font.weight: item.selected ? Font.Bold : Font.Medium
+                    }
                 }
             }
         }

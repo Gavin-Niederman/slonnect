@@ -37,6 +37,8 @@ void PortalFileDialog::open()
     Q_EMIT busyChanged();
 
     QVariantMap options{{QStringLiteral("handle_token"), token}, {QStringLiteral("multiple"), m_multiple}, {QStringLiteral("modal"), true}};
+    if (m_directory)
+        options.insert(QStringLiteral("directory"), true);
     if (!m_acceptLabel.isEmpty())
         options.insert(QStringLiteral("accept_label"), m_acceptLabel);
 

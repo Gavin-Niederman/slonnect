@@ -48,7 +48,6 @@ public:
     Q_INVOKABLE bool send(const QString &text, const QVariantList &attachments = {});
     Q_INVOKABLE void downloadAttachment(qint64 partId, const QString &uniqueIdentifier);
     Q_INVOKABLE void openAttachment(qint64 partId, const QString &uniqueIdentifier);
-    Q_INVOKABLE void launchPhoneApp();
 
     // Fills the models with synthetic conversations (SLONNECT_DEMO=1) so the UI
     // can be exercised without reading anyone's real messages.

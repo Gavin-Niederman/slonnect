@@ -68,14 +68,40 @@ void DeviceManager::reload()
                 if (row >= 0)
                     Q_EMIT dataChanged(index(row), index(row));
                 pickCurrent();
+                updatePairingRequest();
             });
+            connect(device, &Device::pairingFailed, this, [this, device](const QString &error) { Q_EMIT pairingFailed(device->name(), error); });
             beginInsertRows({}, m_devices.size(), m_devices.size());
             m_devices << device;
             endInsertRows();
         }
         Q_EMIT countChanged();
         pickCurrent();
+        updatePairingRequest();
     });
+}
+
+void DeviceManager::updatePairingRequest()
+{
+    Device *request = nullptr;
+    for (Device *d : std::as_const(m_devices)) {
+        if (d->pairRequestedByPeer()) {
+            request = d;
+            break;
+        }
+    }
+    if (request != m_pairingRequest) {
+        m_pairingRequest = request;
+        Q_EMIT pairingRequestChanged();
+    }
+}
+
+Device *DeviceManager::find(const QString &id) const
+{
+    for (Device *d : m_devices)
+        if (d->id() == id)
+            return d;
+    return nullptr;
 }
 
 void DeviceManager::pickCurrent()

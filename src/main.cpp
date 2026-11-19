@@ -71,6 +71,16 @@ int main(int argc, char *argv[])
 
     QGuiApplication app(argc, argv);
     setIdentity();
+
+    // One window: a second launch (sms: link, kdeconnect-app/-sms style flags) goes
+    // to the running instance.
+    QStringList forwarded = app.arguments().mid(1);
+    // On Wayland the launcher's activation token lets the running window take focus.
+    if (const QString token = qEnvironmentVariable("XDG_ACTIVATION_TOKEN"); !token.isEmpty())
+        forwarded << QStringLiteral("--activation-token") << token;
+    if (!qEnvironmentVariableIsSet("SLONNECT_SCREENSHOT") && !qEnvironmentVariableIsSet("SLONNECT_SELFTEST") && AppService::forward(forwarded))
+        return 0;
+
     QGuiApplication::setWindowIcon(QIcon::fromTheme(QStringLiteral("kdeconnect")));
 
     QQuickStyle::setStyle(QStringLiteral("Material"));
@@ -130,13 +140,14 @@ int main(int argc, char *argv[])
         });
     }
 
-    // Receive phone-triggered actions. Queued, so we take over from a headless run.
+    // Receive phone-triggered actions and later launches. Queued, so we take over
+    // from a headless run.
+    AppService appService;
+    appService.registerObject();
     ActionService actionService(App::instance()->actions());
     actionService.registerOnBus(true);
 
-    const QStringList args = app.arguments();
-    for (int i = 1; i < args.size(); ++i)
-        App::instance()->handleUrl(args.at(i));
+    App::instance()->handleArguments(forwarded);
 
     return app.exec();
 }

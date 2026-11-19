@@ -26,11 +26,24 @@ Rectangle {
         }
     }
 
+    // Text handed in from outside (kdeconnect-sms --message, sms:?body=). Goes into
+    // the open thread, or the next one opened.
+    property string carry
+    function prefill(text) {
+        if (App.sms.currentThread >= 0 || App.sms.composing) {
+            input.text = text
+            input.forceActiveFocus()
+        } else {
+            carry = text
+        }
+    }
+
     // Drafts survive switching threads.
     property var drafts: ({})
     property string draftKey: App.sms.currentThread >= 0 ? "t" + App.sms.currentThread : "n" + App.sms.currentAddresses.join(",")
     onDraftKeyChanged: {
-        input.text = drafts[draftKey] || ""
+        input.text = carry || drafts[draftKey] || ""
+        carry = ""
         pending = []
         if (visible)
             input.forceActiveFocus()

@@ -1,0 +1,34 @@
+diff -ru a/core/openconfig.cpp b/core/openconfig.cpp
+--- a/core/openconfig.cpp	2026-11-18 18:06:34.876943042 -0800
++++ b/core/openconfig.cpp	2026-11-18 18:06:34.897070250 -0800
+@@ -38,8 +38,13 @@
+ #elif defined(Q_OS_MAC)
+     QProcess::startDetached(QCoreApplication::applicationDirPath() + QLatin1String("/kdeconnect-app"), args);
+ #else
+-    auto job = new KIO::CommandLauncherJob(QStringLiteral("kdeconnect-app"), args);
+-    job->setDesktopName(QStringLiteral("org.kde.kdeconnect.app"));
++    // KDECONNECT_APP lets another client (e.g. Slonnect) take over the settings UI;
++    // KDECONNECT_APP_DESKTOP names its desktop file for startup notification.
++    const QString app = qEnvironmentVariable("KDECONNECT_APP", QStringLiteral("kdeconnect-app"));
++    const QString desktopName = qEnvironmentVariable("KDECONNECT_APP_DESKTOP", qEnvironmentVariableIsSet("KDECONNECT_APP") ? QString() : QStringLiteral("org.kde.kdeconnect.app"));
++    auto job = new KIO::CommandLauncherJob(app, args);
++    if (!desktopName.isEmpty())
++        job->setDesktopName(desktopName);
+     job->setStartupId(m_currentToken.toUtf8());
+     job->start();
+ 
+diff -ru a/plugins/sms/smsplugin.cpp b/plugins/sms/smsplugin.cpp
+--- a/plugins/sms/smsplugin.cpp	2026-11-18 18:06:34.878852045 -0800
++++ b/plugins/sms/smsplugin.cpp	2026-11-18 18:06:34.897196721 -0800
+@@ -213,7 +213,10 @@
+ 
+ void SmsPlugin::launchApp()
+ {
+-    const QString kdeconnectsmsExecutable = QStandardPaths::findExecutable(QStringLiteral("kdeconnect-sms"), {QCoreApplication::applicationDirPath()});
++    // KDECONNECT_SMS_APP lets another client (e.g. Slonnect) be the SMS app.
++    const QString override = qEnvironmentVariable("KDECONNECT_SMS_APP");
++    const QString kdeconnectsmsExecutable =
++        !override.isEmpty() ? override : QStandardPaths::findExecutable(QStringLiteral("kdeconnect-sms"), {QCoreApplication::applicationDirPath()});
+     QProcess::startDetached(kdeconnectsmsExecutable, {QStringLiteral("--device"), device()->id()});
+ }
+ 

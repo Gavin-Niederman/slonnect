@@ -28,13 +28,21 @@ App::App(QObject *parent)
     : QObject(parent)
     , m_sms(&m_contacts)
     , m_actions(&m_devices)
+    , m_host(&m_devices)
+    , m_plugins(&m_devices)
 {
     m_demo = qEnvironmentVariableIsSet("SLONNECT_DEMO");
-    if (m_demo)
+    if (m_demo) {
         m_sms.loadDemo();
+        m_notifications.loadDemo();
+    }
     // Demo mode must not put commands on a real phone.
     m_actions.setRegistering(!m_demo && !s_headless);
     connect(&m_devices, &DeviceManager::currentChanged, this, &App::rebind);
+    connect(&m_plugins, &PluginSettings::valuesChanged, this, [this](const QString &plugin) {
+        if (plugin == QLatin1String("kdeconnect_share"))
+            Q_EMIT m_share.incomingFolderChanged();
+    });
     rebind();
 }
 
@@ -48,16 +56,20 @@ void App::rebind()
         Device *d = m_devices.current();
         const QString id = d && d->paired() ? d->id() : QString();
         const QStringList plugins = d && d->paired() && d->reachable() ? d->loadedPlugins() : QStringList();
-        for (DevicePlugin *p : std::initializer_list<DevicePlugin *>{&m_share, &m_clipboard, &m_media})
+        for (DevicePlugin *p : std::initializer_list<DevicePlugin *>{&m_share, &m_clipboard, &m_media, &m_remoteControl, &m_remoteKeyboard,
+                                                                     &m_remoteCommands, &m_remoteVolume, &m_lockDevice, &m_virtualMonitor})
             p->setDevice(id, plugins);
         if (m_demo)
-            return; // synthetic conversations only; never touch real messages or contacts
+            return; // synthetic data only; never touch real messages, notifications or contacts
+        m_notifications.setDevice(id, plugins);
         m_sms.setDevice(id, plugins);
         m_contacts.setDevice(id, plugins.contains(QStringLiteral("kdeconnect_contacts")));
         if (!m_pendingUrl.isEmpty() && m_sms.available()) {
             const QString url = std::exchange(m_pendingUrl, {});
             handleUrl(url);
         }
+        if (!m_pendingDraft.isEmpty() && m_sms.available())
+            Q_EMIT showMessages(); // the page picks the draft up from takeDraft()
     };
     if (m_boundDevice) {
         connect(m_boundDevice, &Device::pluginsChanged, this, apply);
@@ -81,9 +93,47 @@ void App::handleUrl(const QString &url)
         m_pendingUrl = url;
         return;
     }
+    if (const QString body = QUrlQuery(u).queryItemValue(QStringLiteral("body"), QUrl::FullyDecoded); !body.isEmpty())
+        m_pendingDraft = body;
     const QStringList recipients = u.path().split(QLatin1Char(','), Qt::SkipEmptyParts);
     m_sms.startConversation(recipients);
     Q_EMIT showMessages();
+}
+
+void App::handleArguments(const QStringList &args)
+{
+    QString page, plugin, device, message;
+    for (int i = 0; i < args.size(); ++i) {
+        const QString &a = args.at(i);
+        auto next = [&] { return i + 1 < args.size() ? args.at(++i) : QString(); };
+        if (a == QLatin1String("--device"))
+            device = next();
+        else if (a == QLatin1String("--plugin-config"))
+            plugin = next();
+        else if (a == QLatin1String("--message"))
+            message = next();
+        else if (a == QLatin1String("--page"))
+            page = next();
+        else if (a == QLatin1String("--activation-token"))
+            qputenv("XDG_ACTIVATION_TOKEN", next().toUtf8()); // consumed by the window's requestActivate()
+        else if (!a.startsWith(QLatin1Char('-')))
+            handleUrl(a);
+    }
+    if (!device.isEmpty())
+        m_devices.select(device);
+    if (!plugin.isEmpty())
+        page = plugin == QLatin1String("kdeconnect_runcommand") ? QStringLiteral("actions") : QStringLiteral("settings");
+    Q_EMIT activateRequested(page, plugin);
+    if (!message.isEmpty()) {
+        // kdeconnect-sms --message: this text goes into the next conversation opened.
+        m_pendingDraft = message;
+        Q_EMIT showMessages();
+    }
+}
+
+QString App::takeDraft()
+{
+    return std::exchange(m_pendingDraft, {});
 }
 
 QString App::formatSize(qint64 bytes) const

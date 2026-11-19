@@ -4,14 +4,24 @@ A Material Design 3 desktop client that merges the KDE Connect app and KDE Conne
 It talks to the running `kdeconnectd` over D-Bus. It doesn't pair or speak the network protocol
 itself, so it works alongside the stock KDE Connect tools.
 
-| Page      | KDE Connect plugin(s)                | What it does |
-|-----------|--------------------------------------|--------------|
-| Messages  | `sms` (conversations), `contacts`    | SMS/MMS/RCS threads with paging, group chats, image/video/file attachments, sending with attachments, sharing contacts as vCards (and rendering received ones as cards), drafts per thread |
-| Files     | `share`, `sftp`                      | Drag-and-drop or portal file picker to send, send links/text, received-files list, browse phone storage |
-| Clipboard | `clipboard`                          | Push the clipboard to the phone, history with per-item resend, auto-sync status |
-| Media     | `mprisremote`                        | Now playing with cover-art tint, seek, previous/play/next, volume, player switching |
-| Actions   | `runcommand`                         | Node-graph actions you trigger from the phone's Run command list: ring/ping/SMS/share, desktop notifications, shell, MPRIS, volume, brightness, Bluetooth, D-Bus calls, branching, waits, text formatting |
-| Device    | `battery`, `ping`, `findmyphone`, …  | Status, ring/ping, pairing, contact sync, and a list of plugins that aren't wired up yet |
+| Page          | KDE Connect plugin(s)                | What it does |
+|---------------|--------------------------------------|--------------|
+| Messages      | `sms` (conversations), `contacts`    | SMS/MMS/RCS threads with paging, group chats, image/video/file attachments, sending with attachments, sharing contacts as vCards (and rendering received ones as cards), drafts per thread |
+| Alerts        | `notifications`                      | The phone's notifications: reply, copy, dismiss, dismiss all; count on the rail |
+| Files         | `share`, `sftp`                      | Drag-and-drop or portal file picker to send, send links/text, received-files list, browse phone storage |
+| Clipboard     | `clipboard`                          | Push the clipboard to the phone, history with per-item resend, auto-sync status |
+| Media         | `mprisremote`                        | Now playing with cover-art tint, seek, previous/play/next, volume, player switching |
+| Remote        | `remotecontrol`, `remotekeyboard`, `remotecommands`, `remotesystemvolume` | Touchpad and keyboard for the other device, presentation keys (desktops), its predefined commands, its volume |
+| Actions       | `runcommand`                         | Node-graph actions you trigger from the phone's Run command list: ring/ping/SMS/share, desktop notifications, shell, MPRIS, volume, brightness, Bluetooth, D-Bus calls, branching, waits, text formatting |
+| Device        | `battery`, `connectivity_report`, `ping`, `findmyphone`, `lockdevice`, `virtualmonitor`, … | Status (battery, signal, address and transport), ring/ping, send clipboard/files, lock/unlock, virtual display, pairing with verification key and certificate details, contact sync |
+| Settings (⚙)  | all                                  | This computer's name, LAN/Bluetooth backends, devices by IP or host name; per-device plugin toggles and options (clipboard, share folder, find-this-device sound, pause-during-calls, presenter pointer, send notifications, share input edge) |
+
+Pairing requests show up as a banner on every page, with Accept and Reject.
+
+That covers what KDE Connect's own app, SMS client, Plasma applet and indicator offer, except the
+tray icon (`services.slonnect.indicator` runs KDE Connect's) and the file-manager "send to device"
+menus, which are separate integrations. Plugins that only work on this computer's side (presenter,
+remote input receiver, telephony and pause-during-calls) need no page; they're configured under Settings.
 
 ## Build and run
 
@@ -25,7 +35,11 @@ nix develop -c bash -c 'cmake -B build -G Ninja && ninja -C build'
 It needs Qt ≥ 6.7 (QtQuick, QuickControls2 Material, QtSvg, DBus). Icons are Google's Material Icons
 (Apache-2.0) baked in as SVGs; add one by listing it in `qml/icons/icons.txt` and running `tools/fetch-icons.sh`.
 Screen mirroring uses `scrcpy` and `adb`; the Nix package bundles both.
-`sms:` / `smsto:` URLs passed as arguments open a draft to that number.
+`sms:` / `smsto:` URLs passed as arguments open a draft to that number (`?body=` fills it in).
+Slonnect runs one window: a second launch hands its arguments to the running one over D-Bus
+(`dev.slonnect.App.Activate`). It understands `kdeconnect-app`'s `--device <id>` and
+`--plugin-config <plugin>` and `kdeconnect-sms`'s `--message <text>`, plus `--page <key>`
+(a key from `qml/Features.qml`).
 
 ## Performance notes
 
@@ -39,14 +53,12 @@ Screen mirroring uses `scrcpy` and `adb`; the Nix package bundles both.
 
 ## Adding a feature
 
-The remaining KDE Connect plugins (notifications, remote input, presenter, …) are
-small additions:
-
 1. Subclass `DevicePlugin` (`src/deviceplugin.h`): pass the plugin id, D-Bus path suffix and
    interface, then `subscribe()` to signals in `attached()` and call methods with `invoke()`.
 2. Expose it as a property on `App` (`src/app.h`) and add it to the list in `App::rebind()`.
 3. Add a page under `qml/pages/` and an entry to `Features.destinations` (`qml/Features.qml`).
-   Remove it from `Features.planned`.
+   Plugin options go in `qml/pages/SettingsPage.qml` (`configurable`), read and written through
+   `App.plugins.value()` / `setValue()`, which use kdeconnectd's own config files.
 
 ## Actions
 
@@ -82,7 +94,7 @@ Tapping it there runs the graph. Commands you added in KDE Connect's own setting
 ## Nix and Home Manager
 
 The flake ships Slonnect and a patched `kdeconnect-kde` (`packages.<system>.kdeconnect`, patches in
-`nix/`). The patch makes the presenter laser pointer a transparent wlr-layer-shell overlay on
+`nix/`). The main patch makes the presenter laser pointer a transparent wlr-layer-shell overlay on
 Wayland, instead of a fullscreen window that niri and others paint over a black backdrop.
 The Home Manager module replaces `services.kdeconnect`:
 
@@ -98,7 +110,9 @@ home-manager.users.you = {
 
 It runs the patched `kdeconnectd` as the same `kdeconnect.service` user unit, installs Slonnect,
 hides KDE Connect's own app and SMS client from launchers, and makes Slonnect the `sms:` handler
-(when `xdg.mimeApps.enable` is on). Phones still need TCP/UDP 1714–1764 open. On NixOS,
+(when `xdg.mimeApps.enable` is on). A second patch lets the unit point the daemon's own app launches
+at Slonnect (`KDECONNECT_APP`, `KDECONNECT_SMS_APP`): the pairing notification's *Open* and the phone's
+*Add command* button under Run command open Slonnect instead of KDE Connect's app. Phones still need TCP/UDP 1714–1764 open. On NixOS,
 `programs.kdeconnect.enable` (or a firewall rule) does that. `overlays.default` provides
 `pkgs.slonnect` and `pkgs.slonnect-kdeconnect` for other setups.
 

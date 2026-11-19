@@ -42,6 +42,18 @@ Item {
         onToast: (text) => page.window.toast(text)
     }
 
+    // Pick up text handed over on the command line once the page is showing.
+    function takeDraft() {
+        const text = App.takeDraft()
+        if (text)
+            thread.prefill(text)
+    }
+    Component.onCompleted: takeDraft()
+    Connections {
+        target: App
+        function onShowMessages() { page.takeDraft() }
+    }
+
     ContactPicker {
         id: picker
         parent: page.window ? page.window.contentItem : page

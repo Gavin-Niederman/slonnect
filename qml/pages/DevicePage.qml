@@ -3,7 +3,7 @@ import QtQuick
 import QtQuick.Controls.Basic as B
 import Slonnect
 
-// Device status, quick actions, device switching/pairing and the feature roadmap.
+// Device status, quick actions, security details, and device switching/pairing.
 Item {
     id: page
     property var window
@@ -28,7 +28,7 @@ Item {
                 width: parent.width
                 visible: !!page.device
                 color: Theme.primaryContainer
-                implicitHeight: 136
+                implicitHeight: Math.max(136, heroText.implicitHeight + 32)
                 Row {
                     anchors.fill: parent
                     spacing: 20
@@ -42,6 +42,7 @@ Item {
                         }
                     }
                     Column {
+                        id: heroText
                         anchors.verticalCenter: parent.verticalCenter
                         spacing: 6
                         Text {
@@ -76,6 +77,25 @@ Item {
                                     anchors.verticalCenter: parent.verticalCenter
                                 }
                             }
+                            Row {
+                                spacing: 6
+                                visible: !!page.device && page.device.reachable && page.device.hasConnectivity
+                                Icon {
+                                    size: 18; color: Theme.primaryContainerFg; anchors.verticalCenter: parent.verticalCenter
+                                    name: !page.device || page.device.signalStrength < 0 ? "signal_cellular_off"
+                                        : "signal_cellular_" + Math.min(4, page.device.signalStrength) + "_bar"
+                                }
+                                Text {
+                                    text: !page.device ? "" : page.device.signalStrength < 0 ? qsTr("No signal") : page.device.networkType
+                                    color: Theme.primaryContainerFg; font.pixelSize: Theme.bodyMedium
+                                    anchors.verticalCenter: parent.verticalCenter
+                                }
+                            }
+                        }
+                        Text {
+                            visible: !!page.device && page.device.reachable && page.device.addresses.length > 0
+                            text: page.device ? qsTr("%1 via %2").arg(page.device.addresses.join(", ")).arg(page.device.providers.join(", ")) : ""
+                            color: Theme.primaryContainerFg; opacity: 0.8; font.pixelSize: Theme.bodyMedium
                         }
                     }
                 }
@@ -95,6 +115,33 @@ Item {
                     style: "tonal"; iconName: "notifications_active"; text: qsTr("Send ping")
                     visible: page.device && page.device.loadedPlugins.includes("kdeconnect_ping")
                     onClicked: { page.device.ping(); page.window.toast(qsTr("Ping sent")) }
+                }
+                Button3 {
+                    style: "tonal"; iconName: "content_paste"; text: qsTr("Send clipboard")
+                    visible: App.clipboard.available
+                    onClicked: { App.clipboard.sendClipboard(); page.window.toast(qsTr("Clipboard sent")) }
+                }
+                Button3 {
+                    style: "tonal"; iconName: "upload_file"; text: qsTr("Send files")
+                    visible: App.share.available
+                    onClicked: sendPicker.open()
+                    FilePicker {
+                        id: sendPicker
+                        title: qsTr("Send files to %1").arg(page.device ? page.device.name : "")
+                        onPicked: (urls) => { const n = App.share.shareUrls(urls); page.window.toast(qsTr("Sending %n file(s)", "", n)) }
+                    }
+                }
+                Button3 {
+                    style: "tonal"; iconName: App.lockDevice.locked ? "lock_open" : "lock"
+                    text: App.lockDevice.locked ? qsTr("Unlock") : qsTr("Lock")
+                    visible: App.lockDevice.available
+                    onClicked: App.lockDevice.locked = !App.lockDevice.locked
+                }
+                Button3 {
+                    style: "tonal"; iconName: "cast"
+                    text: App.virtualMonitor.active ? qsTr("Stop virtual display") : qsTr("Use as a display")
+                    visible: App.virtualMonitor.available
+                    onClicked: App.virtualMonitor.active ? App.virtualMonitor.stop() : App.virtualMonitor.start()
                 }
                 Button3 {
                     style: "tonal"; iconName: "folder_open"; text: page.device && page.device.browsing ? qsTr("Mounting…") : qsTr("Browse files")
@@ -274,28 +321,65 @@ Item {
                 }
             }
 
-            // Roadmap: plugins this device offers that Slonnect doesn't surface yet.
-            SectionHeader { text: qsTr("More from KDE Connect") }
-            Text {
+            // Security: what both sides compare when pairing, and the certificates.
+            SectionHeader { text: qsTr("Security"); visible: !!page.device }
+            Card {
                 width: parent.width
-                text: qsTr("These features work through KDE Connect and are on Slonnect's list. Each one plugs into the same device-plugin framework as the pages above.")
-                color: Theme.surfaceVariantFg
-                font.pixelSize: Theme.bodyMedium
-                wrapMode: Text.Wrap
+                visible: !!page.device
+                style: "outlined"
+                implicitHeight: secCol.implicitHeight + 32
+                Column {
+                    id: secCol
+                    width: parent.width
+                    spacing: 8
+                    property bool showDetails: false
+                    Item {
+                        width: parent.width
+                        height: 40
+                        Row {
+                            anchors.verticalCenter: parent.verticalCenter
+                            spacing: 12
+                            Icon { name: "security"; anchors.verticalCenter: parent.verticalCenter; color: Theme.primary }
+                            Text {
+                                anchors.verticalCenter: parent.verticalCenter
+                                text: page.device && page.device.verificationKey ? qsTr("Verification key %1").arg(page.device.verificationKey) : qsTr("Encrypted with TLS")
+                                color: Theme.surfaceFg
+                                font.pixelSize: Theme.bodyLarge
+                            }
+                        }
+                        Button3 {
+                            anchors.right: parent.right
+                            anchors.verticalCenter: parent.verticalCenter
+                            style: "text"
+                            text: secCol.showDetails ? qsTr("Hide details") : qsTr("Certificate details")
+                            onClicked: { secCol.showDetails = !secCol.showDetails; if (secCol.showDetails) page.device.loadEncryptionInfo() }
+                        }
+                    }
+                    Text {
+                        width: parent.width
+                        visible: secCol.showDetails
+                        text: page.device ? page.device.encryptionInfo : ""
+                        color: Theme.surfaceVariantFg
+                        font.pixelSize: Theme.bodyMedium
+                        font.family: "monospace"
+                        wrapMode: Text.WrapAnywhere
+                        textFormat: Text.PlainText
+                    }
+                }
             }
+
             Flow {
                 width: parent.width
                 spacing: 8
-                Repeater {
-                    model: Features.planned
-                    delegate: Chip {
-                        required property var modelData
-                        readonly property bool supported: !!page.device && page.device.loadedPlugins.includes(modelData.plugin)
-                        iconName: modelData.icon
-                        text: modelData.title + (supported ? "" : qsTr(" (not on device)"))
-                        opacity: supported ? 1 : 0.5
-                        enabled: false
-                    }
+                Button3 {
+                    style: "outlined"; iconName: "tune"; text: qsTr("Plugin settings")
+                    visible: !!page.device
+                    onClicked: page.window.go("settings")
+                }
+                Button3 {
+                    style: "outlined"; iconName: "install_mobile"; text: qsTr("Get KDE Connect for the phone")
+                    visible: App.devices.count === 0
+                    onClicked: Qt.openUrlExternally("https://kdeconnect.kde.org/download.html")
                 }
             }
 

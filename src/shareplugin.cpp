@@ -1,4 +1,5 @@
 #include "shareplugin.h"
+#include "app.h"
 #include "kdeconnect.h"
 
 #include <QDateTime>
@@ -14,6 +15,7 @@ static constexpr int MaxReceived = 100;
 SharePlugin::SharePlugin(QObject *parent)
     : DevicePlugin(QStringLiteral("kdeconnect_share"), QStringLiteral("/share"), QStringLiteral("org.kde.kdeconnect.device.share"), parent)
 {
+    connect(this, &DevicePlugin::availableChanged, this, &SharePlugin::incomingFolderChanged);
 }
 
 void SharePlugin::attached()
@@ -29,10 +31,16 @@ QString SharePlugin::incomingFolder() const
         return fallback;
     const QString configPath = QStandardPaths::writableLocation(QStandardPaths::GenericConfigLocation) + QStringLiteral("/kdeconnect/") + deviceId()
         + QStringLiteral("/kdeconnect_share/config");
+    // kdeconnectd writes the key ungrouped, which QSettings files under [General].
     QSettings config(configPath, QSettings::IniFormat);
-    QString path = config.value(QStringLiteral("General/incoming_path"), fallback).toString();
+    QString path = config.value(QStringLiteral("incoming_path"), fallback).toString();
     if (path.startsWith(QLatin1String("file://")))
         path = QUrl(path).toLocalFile();
+    // "%1" stands for the device's name.
+    if (path.contains(QLatin1String("%1"))) {
+        const Device *d = App::instance()->devices()->find(deviceId());
+        path = path.arg(d ? d->name() : deviceId());
+    }
     return path;
 }
 
