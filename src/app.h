@@ -2,6 +2,7 @@
 
 #include "actionstore.h"
 #include "clipboardplugin.h"
+#include "completer.h"
 #include "contactstore.h"
 #include "devicemanager.h"
 #include "mediaplugin.h"
@@ -32,6 +33,7 @@ class App : public QObject
     Q_PROPERTY(MediaPlugin *media READ media CONSTANT)
     Q_PROPERTY(ScreenMirror *mirror READ mirror CONSTANT)
     Q_PROPERTY(ActionStore *actions READ actions CONSTANT)
+    Q_PROPERTY(Completer *completer READ completer CONSTANT)
     Q_PROPERTY(QString version READ version CONSTANT)
 
 public:
@@ -50,6 +52,7 @@ public:
     MediaPlugin *media() { return &m_media; }
     ScreenMirror *mirror() { return &m_mirror; }
     ActionStore *actions() { return &m_actions; }
+    Completer *completer() { return &m_completer; }
     QString version() const;
 
     // Handle sms:/smsto: links passed on the command line.
@@ -74,6 +77,7 @@ private:
     MediaPlugin m_media;
     ScreenMirror m_mirror;
     ActionStore m_actions;
+    Completer m_completer;
     QPointer<Device> m_boundDevice;
     QString m_pendingUrl;
     bool m_demo = false;

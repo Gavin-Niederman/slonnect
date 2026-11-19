@@ -30,6 +30,9 @@ struct PinDef {
     QVariant defaultValue = {};
     QStringList options = {}; // Choice pins: stored values (also shown as labels)
     QString placeholder = {};
+    // Editor suggestions: "dbus.service", "dbus.path", "dbus.interface", "dbus.method",
+    // "bluetooth.device", "mpris.player" (see Completer).
+    QString completion = {};
 };
 
 // What an action node's executor gets: resolved inputs plus completion callbacks.

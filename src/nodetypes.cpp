@@ -1,4 +1,6 @@
 #include "nodetypes.h"
+#include "nodes_p.h"
+#include "dbusintrospect.h"
 #include "actionrun.h"
 #include "kdeconnect.h"
 #include "messagetypes.h"
@@ -87,12 +89,9 @@ QString kindName(PinKind kind)
     return {};
 }
 
-namespace {
+namespace detail {
 
-using Reply = std::function<void(const QDBusMessage &)>;
-
-// D-Bus value -> plain QVariant (lists, maps, strings, numbers).
-QVariant plain(const QVariant &v);
+QVariant demarshal(const QDBusArgument &arg);
 
 QVariant demarshal(const QDBusArgument &arg)
 {
@@ -159,7 +158,7 @@ QString toText(const QVariant &v)
 }
 
 void dbusCall(const Ctx &c, const QDBusConnection &bus, const QString &service, const QString &path, const QString &iface, const QString &method,
-              const QVariantList &args, Reply onReply, int timeoutMs = -1)
+              const QVariantList &args, Reply onReply, int timeoutMs)
 {
     auto msg = QDBusMessage::createMethodCall(service, path, iface, method);
     msg.setArguments(args);
@@ -261,24 +260,35 @@ PinDef flowIn()
     return {QStringLiteral("in"), QString(), PinKind::Flow};
 }
 
-PinDef flowOut(const QString &id = QStringLiteral("out"), const QString &label = {})
+PinDef flowOut(const QString &id, const QString &label)
 {
     return {id, label, PinKind::Flow};
 }
 
-PinDef text(const QString &id, const QString &label, const QString &def = {}, const QString &placeholder = {})
+PinDef text(const QString &id, const QString &label, const QString &def, const QString &placeholder)
 {
     return {id, label, PinKind::Text, def, {}, placeholder};
 }
 
-PinDef number(const QString &id, const QString &label, double def = 0)
+PinDef number(const QString &id, const QString &label, double def)
 {
     return {id, label, PinKind::Number, def};
+}
+
+PinDef boolean(const QString &id, const QString &label)
+{
+    return {id, label, PinKind::Bool, false};
 }
 
 PinDef choice(const QString &id, const QString &label, const QStringList &options)
 {
     return {id, label, PinKind::Choice, options.value(0), options};
+}
+
+PinDef completing(PinDef pin, const QString &kind)
+{
+    pin.completion = kind;
+    return pin;
 }
 
 // --- Desktop: MPRIS ---------------------------------------------------------------
@@ -546,39 +556,88 @@ QList<NodeType> build()
                   {flowIn(),
                    choice(QStringLiteral("action"), QObject::tr("Action"),
                           {QStringLiteral("Play/Pause"), QStringLiteral("Play"), QStringLiteral("Pause"), QStringLiteral("Next"), QStringLiteral("Previous"), QStringLiteral("Stop")}),
-                   text(QStringLiteral("player"), QObject::tr("Player"), {}, QObject::tr("any"))},
+                   completing(text(QStringLiteral("player"), QObject::tr("Player"), {}, QObject::tr("any")), QStringLiteral("mpris.player"))},
                   {flowOut(), text(QStringLiteral("player"), QObject::tr("Player"))}, desktopMedia, {}, 250};
 
     t << NodeType{QStringLiteral("desktop.dbus"), QObject::tr("D-Bus call"), desktop, QStringLiteral("code"),
-                  QObject::tr("Calls any D-Bus method. Arguments are a JSON array, e.g. [\"text\", 3, true]."),
+                  QObject::tr("Calls any D-Bus method. Fields suggest what's on the bus as you type. Arguments are a JSON array, "
+                              "converted to the method's argument types, e.g. [\"text\", 3, true]."),
                   {flowIn(), choice(QStringLiteral("bus"), QObject::tr("Bus"), {QStringLiteral("session"), QStringLiteral("system")}),
-                   text(QStringLiteral("service"), QObject::tr("Service"), {}, QStringLiteral("org.kde.KWin")),
-                   text(QStringLiteral("path"), QObject::tr("Path"), QStringLiteral("/")), text(QStringLiteral("interface"), QObject::tr("Interface")),
-                   text(QStringLiteral("method"), QObject::tr("Method")), text(QStringLiteral("args"), QObject::tr("Args"), {}, QStringLiteral("[]"))},
+                   completing(text(QStringLiteral("service"), QObject::tr("Service"), {}, QStringLiteral("org.kde.KWin")), QStringLiteral("dbus.service")),
+                   completing(text(QStringLiteral("path"), QObject::tr("Path"), QStringLiteral("/")), QStringLiteral("dbus.path")),
+                   completing(text(QStringLiteral("interface"), QObject::tr("Interface")), QStringLiteral("dbus.interface")),
+                   completing(text(QStringLiteral("method"), QObject::tr("Method")), QStringLiteral("dbus.method")),
+                   text(QStringLiteral("args"), QObject::tr("Args"), {}, QStringLiteral("[]"))},
                   {flowOut(), text(QStringLiteral("result"), QObject::tr("Result"))},
                   [](const Ctx &c) {
-                      QVariantList args;
+                      QJsonArray raw;
                       const QString json = c.str("args").trimmed();
                       if (!json.isEmpty()) {
                           QJsonParseError err;
                           const QJsonDocument doc = QJsonDocument::fromJson(json.toUtf8(), &err);
                           if (!doc.isArray())
                               return c.fail(QObject::tr("Args must be a JSON array: %1").arg(err.errorString()));
-                          for (const auto &v : doc.array())
-                              args << fromJson(v);
+                          raw = doc.array();
                       }
-                      if (c.str("service").trimmed().isEmpty() || c.str("method").trimmed().isEmpty())
+                      const QString service = c.str("service").trimmed(), path = c.str("path").trimmed();
+                      const QString iface = c.str("interface").trimmed(), method = c.str("method").trimmed();
+                      if (service.isEmpty() || method.isEmpty())
                           return c.fail(QObject::tr("Service and method are required"));
                       const auto bus = c.str("bus") == QLatin1String("system") ? QDBusConnection::systemBus() : QDBusConnection::sessionBus();
-                      dbusCall(c, bus, c.str("service").trimmed(), c.str("path").trimmed(), c.str("interface").trimmed(), c.str("method").trimmed(), args,
-                               [c](const QDBusMessage &reply) {
-                                   QStringList parts;
-                                   for (const QVariant &v : reply.arguments())
-                                       parts << toText(v);
-                                   c.next({{QStringLiteral("result"), parts.join(QLatin1Char('\n'))}});
-                               });
+
+                      auto call = [c, bus, service, path, iface, method](const QVariantList &args) {
+                          dbusCall(c, bus, service, path, iface, method, args, [c](const QDBusMessage &reply) {
+                              QStringList parts;
+                              for (const QVariant &v : reply.arguments())
+                                  parts << toText(v);
+                              c.next({{QStringLiteral("result"), parts.join(QLatin1Char('\n'))}});
+                          });
+                      };
+                      auto guess = [raw] {
+                          QVariantList args;
+                          for (const auto &v : raw)
+                              args << fromJson(v);
+                          return args;
+                      };
+                      if (iface.isEmpty())
+                          return call(guess());
+
+                      // Look the method up so arguments get the exact types it takes
+                      // (uint32 vs int32, object paths, string lists, ...).
+                      introspect::fetch(bus, service, path, c.run.data(), [=](bool ok, const introspect::Node &node) {
+                          const introspect::Interface *i = ok ? node.interface(iface) : nullptr;
+                          const introspect::Method *m = nullptr;
+                          static const QList<introspect::Method> none;
+                          const QList<introspect::Method> &methods = i ? i->methods : none;
+                          for (const auto &candidate : methods)
+                              if (candidate.name == method && (!m || introspect::splitSignature(candidate.in).size() == raw.size()))
+                                  m = &candidate;
+                          if (!m)
+                              return call(guess());
+                          const QStringList types = introspect::splitSignature(m->in);
+                          if (types.size() != raw.size())
+                              return c.fail((types.size() == 1 ? QObject::tr("%1 takes 1 argument (%2), got %3") : QObject::tr("%1 takes %4 arguments (%2), got %3"))
+                                                .arg(method, m->in.isEmpty() ? QObject::tr("none") : m->in)
+                                                .arg(raw.size())
+                                                .arg(types.size()));
+                          QVariantList args;
+                          for (int k = 0; k < types.size(); ++k) {
+                              bool converted = false;
+                              args << introspect::coerce(raw.at(k).toVariant(), types.at(k), &converted);
+                              if (!converted) {
+                                  const QString name = m->inNames.value(k);
+                                  return c.fail(QObject::tr("Argument %1%2 should be %3")
+                                                    .arg(k + 1)
+                                                    .arg(name.isEmpty() ? QString() : QStringLiteral(" (%1)").arg(name), types.at(k)));
+                              }
+                          }
+                          call(args);
+                      });
                   },
                   {}, 300};
+
+
+    addSystemNodes(t);
 
     // --- Logic ---
     t << NodeType{QStringLiteral("logic.if"), QObject::tr("If"), logic, QStringLiteral("call_split"),
@@ -675,7 +734,7 @@ QList<NodeType> build()
     return t;
 }
 
-} // namespace
+} // namespace detail
 
 QVariantList describePins(const QList<PinDef> &pins)
 {
@@ -686,13 +745,14 @@ QVariantList describePins(const QList<PinDef> &pins)
                             {QStringLiteral("kind"), kindName(p.kind)},
                             {QStringLiteral("defaultValue"), p.defaultValue},
                             {QStringLiteral("options"), p.options},
-                            {QStringLiteral("placeholder"), p.placeholder}};
+                            {QStringLiteral("placeholder"), p.placeholder},
+                            {QStringLiteral("completion"), p.completion}};
     return list;
 }
 
 const QList<NodeType> &all()
 {
-    static const QList<NodeType> types = build();
+    static const QList<NodeType> types = detail::build();
     return types;
 }
 

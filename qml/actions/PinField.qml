@@ -3,14 +3,65 @@ import QtQuick
 import QtQuick.Controls.Basic as B
 import Slonnect
 
-// Inline editor for an unconnected node input: text, number, bool or choice.
+// Inline editor for an unconnected node input: text, number, bool or choice. Text
+// pins with a `completion` kind suggest values (D-Bus names, Bluetooth devices, …)
+// looked up live by App.completer; ↑/↓ pick, Enter or Tab takes one.
 Item {
     id: root
     required property var pin
     property var value
+    // The node's current values, so suggestions can depend on other inputs.
+    property var context: ({})
     signal edited(var value)
+    // Other inputs a chosen suggestion wants filled in, e.g. { args: "[\"\", 0]" }.
+    signal fill(var values)
 
     implicitHeight: 24
+
+    readonly property bool completes: !!root.pin.completion
+    property var suggestions: []
+    property int requestId: -1
+    property bool typed: false
+    readonly property var shown: {
+        const q = input.text.trim().toLowerCase()
+        if (!typed || !q)
+            return suggestions.slice(0, 200)
+        const hits = suggestions.filter(s => s.value.toLowerCase().includes(q) || (s.detail || "").toLowerCase().includes(q))
+        // Prefix matches first.
+        hits.sort((a, b) => (b.value.toLowerCase().startsWith(q) ? 1 : 0) - (a.value.toLowerCase().startsWith(q) ? 1 : 0))
+        return hits.slice(0, 200)
+    }
+    onShownChanged: {
+        list.currentIndex = shown.length ? 0 : -1
+        if (!shown.length)
+            suggest.close()
+    }
+
+    function request() {
+        loading = true
+        requestId = App.completer.complete(root.pin.completion, root.context || ({}))
+    }
+    property bool loading: false
+    function choose(s) {
+        typed = false
+        input.text = s.value
+        root.edited(s.value)
+        if (s.fill)
+            root.fill(s.fill)
+        suggest.close()
+    }
+
+    Connections {
+        target: root.completes ? App.completer : null
+        function onCompleted(id, items) {
+            if (id !== root.requestId)
+                return
+            root.loading = false
+            root.suggestions = items
+            if (input.activeFocus && root.shown.length)
+                suggest.open()
+        }
+    }
 
     Rectangle {
         anchors.fill: parent
@@ -24,7 +75,7 @@ Item {
             id: input
             anchors.fill: parent
             anchors.leftMargin: 8
-            anchors.rightMargin: 8
+            anchors.rightMargin: root.completes ? 20 : 8
             verticalAlignment: TextInput.AlignVCenter
             clip: true
             color: Theme.surfaceFg
@@ -43,8 +94,42 @@ Item {
             onEditingFinished: root.edited(root.pin.kind === "number" ? Number(text || 0) : text)
             // Show the start of long values when not editing.
             onTextChanged: if (!activeFocus) cursorPosition = 0
-            onActiveFocusChanged: if (!activeFocus) cursorPosition = 0
-            Keys.onEscapePressed: focus = false
+            onActiveFocusChanged: {
+                if (!activeFocus) {
+                    cursorPosition = 0
+                    suggest.close()
+                } else if (root.completes) {
+                    root.typed = false
+                    root.request()
+                }
+            }
+            onTextEdited: {
+                if (!root.completes)
+                    return
+                root.typed = true
+                if (root.shown.length)
+                    suggest.open()
+            }
+            Keys.onPressed: event => {
+                if (!suggest.opened)
+                    return
+                if (event.key === Qt.Key_Down) {
+                    list.incrementCurrentIndex()
+                    event.accepted = true
+                } else if (event.key === Qt.Key_Up) {
+                    list.decrementCurrentIndex()
+                    event.accepted = true
+                } else if ((event.key === Qt.Key_Return || event.key === Qt.Key_Enter || event.key === Qt.Key_Tab) && list.currentIndex >= 0) {
+                    root.choose(root.shown[list.currentIndex])
+                    event.accepted = true
+                }
+            }
+            Keys.onEscapePressed: {
+                if (suggest.opened)
+                    suggest.close()
+                else
+                    focus = false
+            }
 
             Text {
                 anchors.verticalCenter: parent.verticalCenter
@@ -56,7 +141,84 @@ Item {
                 width: parent.width
             }
         }
+        // Opens the suggestion list without typing.
+        Icon {
+            visible: root.completes
+            anchors.right: parent.right
+            anchors.rightMargin: 2
+            anchors.verticalCenter: parent.verticalCenter
+            name: "expand_more"
+            size: 16
+            color: Theme.surfaceVariantFg
+            opacity: root.loading ? 0.4 : 1
+            TapHandler {
+                onTapped: {
+                    input.forceActiveFocus()
+                    root.typed = false
+                    if (root.shown.length)
+                        suggest.open()
+                }
+            }
+        }
         DoubleValidator { id: numberValidator; notation: DoubleValidator.StandardNotation; locale: "C" }
+
+        B.Popup {
+            id: suggest
+            y: parent.height + 2
+            width: Math.max(320, parent.width)
+            height: Math.min(list.contentHeight + 8, 280)
+            padding: 4
+            focus: false
+            closePolicy: B.Popup.CloseOnEscape | B.Popup.CloseOnPressOutsideParent
+            background: Rectangle {
+                radius: Theme.radiusM
+                color: Theme.surfaceContainerHigh
+                border.width: 1
+                border.color: Theme.outlineVariant
+            }
+            contentItem: ListView {
+                id: list
+                clip: true
+                model: root.shown
+                highlightMoveDuration: 0
+                boundsBehavior: Flickable.StopAtBounds
+                B.ScrollBar.vertical: B.ScrollBar {}
+                delegate: Rectangle {
+                    id: entry
+                    required property var modelData
+                    required property int index
+                    width: ListView.view.width
+                    height: entry.modelData.detail ? 40 : 28
+                    radius: 6
+                    color: ListView.isCurrentItem ? Theme.secondaryContainer : hover.hovered ? Theme.alpha(Theme.surfaceFg, 0.08) : "transparent"
+                    Column {
+                        x: 8
+                        width: parent.width - 16
+                        anchors.verticalCenter: parent.verticalCenter
+                        Text {
+                            width: parent.width
+                            text: entry.modelData.value
+                            color: entry.ListView.isCurrentItem ? Theme.secondaryContainerFg : Theme.surfaceFg
+                            font.pixelSize: Theme.labelLarge
+                            elide: Text.ElideMiddle
+                            textFormat: Text.PlainText
+                        }
+                        Text {
+                            width: parent.width
+                            visible: text.length > 0
+                            text: entry.modelData.detail || ""
+                            color: Theme.surfaceVariantFg
+                            font.pixelSize: Theme.labelSmall
+                            font.family: "monospace"
+                            elide: Text.ElideRight
+                            textFormat: Text.PlainText
+                        }
+                    }
+                    HoverHandler { id: hover }
+                    TapHandler { onTapped: root.choose(entry.modelData) }
+                }
+            }
+        }
     }
 
     // Bool: a small switch.

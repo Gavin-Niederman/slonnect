@@ -34,6 +34,9 @@ qt_add_executable(slonnect
     src/actionstore.h src/actionstore.cpp
     src/actionservice.h src/actionservice.cpp
     src/runcommand.h src/runcommand.cpp
+    src/nodes_p.h src/systemnodes.cpp
+    src/dbusintrospect.h src/dbusintrospect.cpp
+    src/completer.h src/completer.cpp
 )
 
 target_compile_definitions(slonnect PRIVATE

@@ -10,7 +10,7 @@ itself, so it works alongside the stock KDE Connect tools.
 | Files     | `share`, `sftp`                      | Drag-and-drop or portal file picker to send, send links/text, received-files list, browse phone storage |
 | Clipboard | `clipboard`                          | Push the clipboard to the phone, history with per-item resend, auto-sync status |
 | Media     | `mprisremote`                        | Now playing with cover-art tint, seek, previous/play/next, volume, player switching |
-| Actions   | `runcommand`                         | Node-graph actions you trigger from the phone's Run command list: ring/ping/SMS/share, desktop notifications, shell, MPRIS, D-Bus calls, branching, waits, text formatting |
+| Actions   | `runcommand`                         | Node-graph actions you trigger from the phone's Run command list: ring/ping/SMS/share, desktop notifications, shell, MPRIS, volume, brightness, Bluetooth, D-Bus calls, branching, waits, text formatting |
 | Device    | `battery`, `ping`, `findmyphone`, …  | Status, ring/ping, pairing, contact sync, and a list of plugins that aren't wired up yet |
 
 ## Build and run
@@ -57,6 +57,14 @@ Tapping it there runs the graph. Commands you added in KDE Connect's own setting
 - **Execution** starts at the *Phone command* node and follows the white flow wires. Coloured data
   wires carry values; an unconnected input uses the value typed into the node. Pure nodes (Text,
   Format, Math, Date & time) are evaluated when something reads them.
+- **Desktop hardware:** *Volume* uses PipeWire's `wpctl` (or `pactl`); *Brightness* drives the
+  screen or keyboard backlight through logind, so no root or udev rule is needed (external monitors
+  go through `ddcutil` if it's installed); *Bluetooth* talks to BlueZ to power the adapter or
+  connect a paired device.
+- **D-Bus call** suggests services, object paths, interfaces and methods as you type (Introspect
+  on the live bus), and picking a method fills in an argument skeleton. At run time the JSON
+  arguments are converted to the method's real signature (`u` vs `i`, object paths, string
+  lists, `a{sv}`), so a wrong argument is reported by name before the call goes out.
 - **Editor:** drag from a pin to connect, drag a connected input to move its wire, right-click a
   pin to disconnect, double-click or right-click empty space to add a node, Delete removes the
   selected node, Ctrl+D duplicates it. Wheel zooms, dragging the background pans.

@@ -107,3 +107,6 @@ share
 sms
 format_list_numbered
 wifi_tethering
+bluetooth
+brightness_6
+expand_more

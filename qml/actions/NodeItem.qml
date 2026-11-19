@@ -243,6 +243,15 @@ Item {
                 pin: row.input || ({ kind: "text" })
                 value: row.input ? node.values[row.input.id] : undefined
                 onEdited: v => node.graph.setValue(node.uid, row.input.id, v)
+                context: node.values
+                // Prefill related inputs the user hasn't set (e.g. args for a chosen method).
+                onFill: values => {
+                    for (const k in values) {
+                        const cur = node.values[k]
+                        if (cur === undefined || cur === null || String(cur).trim() === "" || String(cur).trim() === "[]")
+                            node.graph.setValue(node.uid, k, values[k])
+                    }
+                }
             }
 
             // --- output side ---
