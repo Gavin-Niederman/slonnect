@@ -1,5 +1,5 @@
 {
-  description = "Slonnect - a Material Design desktop client for KDE Connect";
+  description = "Slonnect - Material Design KDE Connect clients for the desktop and Android";
 
   inputs.nixpkgs.url = "nixpkgs";
 
@@ -7,13 +7,17 @@
     let
       systems = [ "x86_64-linux" "aarch64-linux" ];
       forAll = f: nixpkgs.lib.genAttrs systems (system: f nixpkgs.legacyPackages.${system});
+      androidPkgs = pkgs: import nixpkgs {
+        inherit (pkgs.stdenv.hostPlatform) system;
+        config = { allowUnfree = true; android_sdk.accept_license = true; };
+      };
     in {
       packages = forAll (pkgs: {
         default = pkgs.qt6Packages.callPackage ./nix/package.nix { };
         slonnect = self.packages.${pkgs.stdenv.hostPlatform.system}.default;
         # Patched kdeconnect-kde (see nix/kdeconnect.nix).
         kdeconnect = pkgs.callPackage ./nix/kdeconnect.nix { };
-        # Google Messages for Web helper (helpers/gmessages, AGPL-3.0).
+        # Google Messages for Web helper (desktop/helpers/gmessages, AGPL-3.0).
         gmessages = pkgs.callPackage ./nix/gmessages.nix { };
       });
 
@@ -29,9 +33,14 @@
       homeModules.default = self.homeManagerModules.default;
 
       devShells = forAll (pkgs: {
+        # Android app (mobile/). The SDK is unfree, so these import nixpkgs with the
+        # licence accepted instead of using `pkgs`.
+        android = (androidPkgs pkgs).callPackage ./nix/android-shell.nix { };
+        android-emulator = (androidPkgs pkgs).callPackage ./nix/android-shell.nix { withEmulator = true; };
+
         default = pkgs.mkShell {
           inputsFrom = [ self.packages.${pkgs.stdenv.hostPlatform.system}.default ];
-          packages = [ pkgs.qt6.qttools pkgs.gdb pkgs.scrcpy pkgs.android-tools pkgs.go ];
+          packages = [ pkgs.qt6.qttools pkgs.gdb pkgs.scrcpy pkgs.android-tools pkgs.go pkgs.just ];
           shellHook = ''
             export QML_IMPORT_PATH=${pkgs.qt6.qtdeclarative}/${pkgs.qt6.qtbase.qtQmlPrefix}
             # The packaged app gets plugin paths from wrapQtAppsHook; mirror that for ./build runs

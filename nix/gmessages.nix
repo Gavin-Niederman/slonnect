@@ -1,11 +1,11 @@
-# slonnect-gm: Google Messages for Web for Slonnect (helpers/gmessages). AGPL-3.0,
+# slonnect-gm: Google Messages for Web for Slonnect (desktop/helpers/gmessages). AGPL-3.0,
 # since it builds on libgm from mautrix-gmessages.
 { lib, buildGoModule }:
 
 buildGoModule {
   pname = "slonnect-gm";
   version = "0.1.0";
-  src = ../helpers/gmessages;
+  src = ../desktop/helpers/gmessages;
   vendorHash = "sha256-mvpjnKdTcpnyTR5XZtWzR+YNGsvdHFWcWdqU29GTtq4=";
   env.CGO_ENABLED = 0;
 

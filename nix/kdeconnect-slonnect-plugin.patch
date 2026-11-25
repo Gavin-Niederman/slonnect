@@ -1,0 +1,202 @@
+diff -ruN a/plugins/CMakeLists.txt b/plugins/CMakeLists.txt
+--- a/plugins/CMakeLists.txt	2026-11-24 16:10:16.787142980 -0800
++++ b/plugins/CMakeLists.txt	2026-11-24 16:10:16.818566488 -0800
+@@ -34,6 +34,8 @@
+ add_subdirectory(sms)
+ add_subdirectory(screensaver-inhibit)
+ add_subdirectory(virtualmonitor)
++# Slonnect: forwards kdeconnect.slonnect.* packets to and from D-Bus.
++add_subdirectory(slonnect)
+ 
+ if(${CMAKE_SYSTEM_NAME} STREQUAL "Linux")
+     find_package(KF6ModemManagerQt ${KF_MIN_VERSION})
+diff -ruN a/plugins/slonnect/CMakeLists.txt b/plugins/slonnect/CMakeLists.txt
+--- a/plugins/slonnect/CMakeLists.txt	1969-12-31 16:00:00.000000000 -0800
++++ b/plugins/slonnect/CMakeLists.txt	2026-11-24 16:10:16.822026326 -0800
+@@ -0,0 +1,5 @@
++kdeconnect_add_plugin(kdeconnect_slonnect SOURCES slonnectplugin.cpp)
++target_link_libraries(kdeconnect_slonnect
++    kdeconnectcore
++    Qt::DBus
++)
+diff -ruN a/plugins/slonnect/kdeconnect_slonnect.json b/plugins/slonnect/kdeconnect_slonnect.json
+--- a/plugins/slonnect/kdeconnect_slonnect.json	1969-12-31 16:00:00.000000000 -0800
++++ b/plugins/slonnect/kdeconnect_slonnect.json	2026-11-24 16:10:16.823026324 -0800
+@@ -0,0 +1,33 @@
++{
++    "$schema": "../kdeconnect.schema.json",
++    "KPlugin": {
++        "Authors": [
++            {
++                "Name": "Slonnect"
++            }
++        ],
++        "Description": "Actions that run on both devices and phone-side action nodes, for Slonnect",
++        "EnabledByDefault": true,
++        "Icon": "system-run",
++        "License": "GPL",
++        "Name": "Slonnect"
++    },
++    "X-KdeConnect-OutgoingPacketType": [
++        "kdeconnect.slonnect.hello",
++        "kdeconnect.slonnect.node.run",
++        "kdeconnect.slonnect.node.result",
++        "kdeconnect.slonnect.actions",
++        "kdeconnect.slonnect.actions.request",
++        "kdeconnect.slonnect.action.run",
++        "kdeconnect.slonnect.action.status"
++    ],
++    "X-KdeConnect-SupportedPacketType": [
++        "kdeconnect.slonnect.hello",
++        "kdeconnect.slonnect.node.run",
++        "kdeconnect.slonnect.node.result",
++        "kdeconnect.slonnect.actions",
++        "kdeconnect.slonnect.actions.request",
++        "kdeconnect.slonnect.action.run",
++        "kdeconnect.slonnect.action.status"
++    ]
++}
+diff -ruN a/plugins/slonnect/slonnectplugin.cpp b/plugins/slonnect/slonnectplugin.cpp
+--- a/plugins/slonnect/slonnectplugin.cpp	1969-12-31 16:00:00.000000000 -0800
++++ b/plugins/slonnect/slonnectplugin.cpp	2026-11-24 16:10:16.827026314 -0800
+@@ -0,0 +1,94 @@
++/**
++ * SPDX-FileCopyrightText: 2026 Slonnect contributors
++ *
++ * SPDX-License-Identifier: GPL-2.0-only OR GPL-3.0-only OR LicenseRef-KDE-Accepted-GPL
++ */
++
++#include "slonnectplugin.h"
++
++#include <KPluginFactory>
++
++#include <QDBusConnection>
++#include <QDBusConnectionInterface>
++#include <QJsonDocument>
++#include <QJsonObject>
++#include <QProcess>
++
++#include <core/device.h>
++
++#include "plugin_slonnect_debug.h"
++
++K_PLUGIN_CLASS_WITH_JSON(SlonnectPlugin, "kdeconnect_slonnect.json")
++
++namespace
++{
++const QString Prefix = QStringLiteral("kdeconnect.slonnect.");
++const QString HelloType = QStringLiteral("kdeconnect.slonnect.hello");
++const QString ActionRunType = QStringLiteral("kdeconnect.slonnect.action.run");
++// The Slonnect desktop app's bus name while it is running.
++const QString AppService = QStringLiteral("dev.slonnect.Slonnect");
++}
++
++bool SlonnectPlugin::sendPacket(const QString &type, const QString &body)
++{
++    if (!type.startsWith(Prefix)) {
++        qCWarning(KDECONNECT_PLUGIN_SLONNECT) << "Refusing to send non-Slonnect packet" << type;
++        return false;
++    }
++    QJsonParseError error;
++    const QJsonDocument doc = QJsonDocument::fromJson(body.toUtf8(), &error);
++    if (!body.isEmpty() && (error.error != QJsonParseError::NoError || !doc.isObject())) {
++        qCWarning(KDECONNECT_PLUGIN_SLONNECT) << "Body of" << type << "is not a JSON object:" << error.errorString();
++        return false;
++    }
++    NetworkPacket np(type, doc.object().toVariantMap());
++    return KdeConnectPlugin::sendPacket(np);
++}
++
++QString SlonnectPlugin::lastHello() const
++{
++    return m_lastHello;
++}
++
++void SlonnectPlugin::receivePacket(const NetworkPacket &np)
++{
++    const QString body = QString::fromUtf8(QJsonDocument(QJsonObject::fromVariantMap(np.body())).toJson(QJsonDocument::Compact));
++    if (np.type() == HelloType)
++        m_lastHello = body;
++    Q_EMIT packetReceived(np.type(), body);
++
++    // Actions triggered from the phone still run when Slonnect isn't open, through the
++    // same headless entry point the Run command integration uses.
++    if (np.type() == ActionRunType) {
++        const auto *iface = QDBusConnection::sessionBus().interface();
++        if (iface && !iface->isServiceRegistered(AppService))
++            runHeadless(np);
++    }
++}
++
++void SlonnectPlugin::runHeadless(const NetworkPacket &np)
++{
++    const QString id = np.get<QString>(QStringLiteral("id"));
++    if (id.isEmpty())
++        return;
++    const QString program = qEnvironmentVariable("SLONNECT_BIN", QStringLiteral("slonnect"));
++    QStringList args{QStringLiteral("--run-action"), id, QStringLiteral("--device"), device()->id()};
++    const QString runId = np.get<QString>(QStringLiteral("runId"));
++    if (!runId.isEmpty())
++        args << QStringLiteral("--run-id") << runId;
++    if (!QProcess::startDetached(program, args))
++        qCWarning(KDECONNECT_PLUGIN_SLONNECT) << "Could not start" << program;
++}
++
++void SlonnectPlugin::connected()
++{
++    Q_EMIT deviceConnected();
++}
++
++QString SlonnectPlugin::dbusPath() const
++{
++    return QLatin1String("/modules/kdeconnect/devices/%1/slonnect").arg(device()->id());
++}
++
++#include "moc_slonnectplugin.cpp"
++#include "slonnectplugin.moc"
+diff -ruN a/plugins/slonnect/slonnectplugin.h b/plugins/slonnect/slonnectplugin.h
+--- a/plugins/slonnect/slonnectplugin.h	1969-12-31 16:00:00.000000000 -0800
++++ b/plugins/slonnect/slonnectplugin.h	2026-11-24 16:10:16.825026319 -0800
+@@ -0,0 +1,42 @@
++/**
++ * SPDX-FileCopyrightText: 2026 Slonnect contributors
++ *
++ * SPDX-License-Identifier: GPL-2.0-only OR GPL-3.0-only OR LicenseRef-KDE-Accepted-GPL
++ */
++
++#pragma once
++
++#include <QObject>
++
++#include <core/kdeconnectplugin.h>
++
++// A pipe between the Slonnect desktop app (D-Bus) and the Slonnect Android app
++// (kdeconnect.slonnect.* packets). The protocol lives in Slonnect; see protocol/README.md
++// in the Slonnect repository.
++class SlonnectPlugin : public KdeConnectPlugin
++{
++    Q_OBJECT
++    Q_CLASSINFO("D-Bus Interface", "org.kde.kdeconnect.device.slonnect")
++
++public:
++    using KdeConnectPlugin::KdeConnectPlugin;
++
++    // type must start with "kdeconnect.slonnect."; body is a JSON object.
++    Q_SCRIPTABLE bool sendPacket(const QString &type, const QString &body);
++    // The last hello the phone sent (JSON body), so Slonnect can read the phone's node
++    // catalogue without waiting for a round trip. Empty until one arrives.
++    Q_SCRIPTABLE QString lastHello() const;
++
++    void receivePacket(const NetworkPacket &np) override;
++    void connected() override;
++    QString dbusPath() const override;
++
++Q_SIGNALS:
++    Q_SCRIPTABLE void packetReceived(const QString &type, const QString &body);
++    Q_SCRIPTABLE void deviceConnected();
++
++private:
++    void runHeadless(const NetworkPacket &np);
++
++    QString m_lastHello;
++};

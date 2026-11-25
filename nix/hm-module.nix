@@ -114,6 +114,8 @@ in
           # Needs this flake's patched daemon; the stock one ignores these.
           Environment = [
             "KDECONNECT_APP=${lib.getExe cfg.package}"
+            # The slonnect plugin starts this for actions triggered from the Slonnect phone app.
+            "SLONNECT_BIN=${lib.getExe cfg.package}"
             "KDECONNECT_APP_DESKTOP=dev.slonnect.Slonnect"
             "KDECONNECT_SMS_APP=${lib.getExe cfg.package}"
           ];

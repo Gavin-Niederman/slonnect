@@ -1,0 +1,90 @@
+diff -ruN a/plugins/presenter/PresenterElectric.qml b/plugins/presenter/PresenterElectric.qml
+--- a/plugins/presenter/PresenterElectric.qml	2026-11-24 16:15:23.829345915 -0800
++++ b/plugins/presenter/PresenterElectric.qml	2026-11-24 16:15:23.837446276 -0800
+@@ -4,7 +4,7 @@
+  * SPDX-License-Identifier: GPL-2.0-only OR GPL-3.0-only OR LicenseRef-KDE-Accepted-GPL
+  */
+ 
+-import QtQuick 2.5
++import QtQuick
+ import QtQuick.Window 2.5
+ import QtQuick.Particles 2.0
+ 
+@@ -15,6 +15,21 @@
+     property real xPos: 0.5
+     property real yPos: 0.5
+ 
++    // Slonnect: xPos/yPos jump to each new position the phone sends (50-100 times a second,
++    // bunched up by Wi-Fi). Draw the pointer at shownX/shownY instead, which glide toward
++    // the latest position every frame, so it moves smoothly at the display's refresh rate.
++    property real smoothing: 0.03 // seconds; time constant of the easing
++    property real shownX: xPos
++    property real shownY: yPos
++    FrameAnimation {
++        running: true
++        onTriggered: {
++            const k = 1 - Math.exp(-frameTime / root.smoothing)
++            root.shownX += (root.xPos - root.shownX) * k
++            root.shownY += (root.yPos - root.shownY) * k
++        }
++    }
++
+     property real devicePixelRatio: Window.window != null && Window.window.screen != null ? Window.window.screen.devicePixelRatio : 1.0
+ 
+     ParticleSystem {
+@@ -22,8 +37,8 @@
+         width: parent.width/20
+         height: width
+ 
+-        x: root.width * root.xPos - width/2
+-        y: root.height * root.yPos - height/2
++        x: root.width * root.shownX - width/2
++        y: root.height * root.shownY - height/2
+ 
+         ImageParticle {
+             groups: ["center"]
+diff -ruN a/plugins/presenter/PresenterRedDot.qml b/plugins/presenter/PresenterRedDot.qml
+--- a/plugins/presenter/PresenterRedDot.qml	2026-11-24 16:15:23.829367729 -0800
++++ b/plugins/presenter/PresenterRedDot.qml	2026-11-24 16:15:23.836149577 -0800
+@@ -4,7 +4,7 @@
+  * SPDX-License-Identifier: GPL-2.0-only OR GPL-3.0-only OR LicenseRef-KDE-Accepted-GPL
+  */
+ 
+-import QtQuick 2.5
++import QtQuick
+ import QtQuick.Window 2.5
+ import QtQuick.Particles 2.0
+ 
+@@ -15,6 +15,21 @@
+     property real xPos: 0.5
+     property real yPos: 0.5
+ 
++    // Slonnect: xPos/yPos jump to each new position the phone sends (50-100 times a second,
++    // bunched up by Wi-Fi). Draw the pointer at shownX/shownY instead, which glide toward
++    // the latest position every frame, so it moves smoothly at the display's refresh rate.
++    property real smoothing: 0.03 // seconds; time constant of the easing
++    property real shownX: xPos
++    property real shownY: yPos
++    FrameAnimation {
++        running: true
++        onTriggered: {
++            const k = 1 - Math.exp(-frameTime / root.smoothing)
++            root.shownX += (root.xPos - root.shownX) * k
++            root.shownY += (root.yPos - root.shownY) * k
++        }
++    }
++
+     property real devicePixelRatio: Window.window != null && Window.window.screen != null ? Window.window.screen.devicePixelRatio : 1.0
+ 
+     Rectangle {
+@@ -22,8 +37,8 @@
+         height: width
+         radius: width
+ 
+-        x: root.width * root.xPos - width/2
+-        y: root.height * root.yPos - height/2
++        x: root.width * root.shownX - width/2
++        y: root.height * root.shownY - height/2
+ 
+         border.color: "white"
+         border.width: 1

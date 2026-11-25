@@ -1,0 +1,24 @@
+diff -ruN a/core/backends/lan/lanlinkprovider.cpp b/core/backends/lan/lanlinkprovider.cpp
+--- a/core/backends/lan/lanlinkprovider.cpp	2026-11-24 16:15:23.832671008 -0800
++++ b/core/backends/lan/lanlinkprovider.cpp	2026-11-24 16:15:23.842991462 -0800
+@@ -281,7 +281,10 @@
+ 
+         m_udpSocket.readDatagram(datagram.data(), datagram.size(), &sender);
+ 
+-        if (sender.isLoopback() && !m_testMode)
++        // Slonnect: accept identities from this machine too (our own is still dropped by its
++        // device id below), so an Android emulator, whose packets arrive from 127.0.0.1
++        // through its NAT, can introduce itself.
++        if (sender.isLoopback() && !m_testMode && qEnvironmentVariableIsSet("KDECONNECT_IGNORE_LOOPBACK"))
+             continue;
+ 
+         std::shared_ptr<NetworkPacket> receivedPacket = std::shared_ptr<NetworkPacket>{new NetworkPacket()};
+@@ -617,6 +620,8 @@
+ {
+     socket->setProxy(QNetworkProxy::NoProxy);
+     socket->setSocketOption(QAbstractSocket::KeepAliveOption, QVariant(1));
++    // Slonnect: no Nagle batching, so small packets (pointer, mouse, presenter) go out at once.
++    socket->setSocketOption(QAbstractSocket::LowDelayOption, QVariant(1));
+ 
+ #ifdef TCP_KEEPIDLE
+     // Detect dead connections in ~60s instead of the Linux default ~7875s.

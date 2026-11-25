@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Slonnect Messages bridge: presses Send in the messaging app for messages sent from the computer. -->
+<accessibility-service xmlns:android="http://schemas.android.com/apk/res/android"
+    android:accessibilityEventTypes="typeWindowStateChanged|typeWindowContentChanged"
+    android:accessibilityFeedbackType="feedbackGeneric"
+    android:accessibilityFlags="flagReportViewIds|flagRetrieveInteractiveWindows"
+    android:canRetrieveWindowContent="true"
+    android:notificationTimeout="100"
+    android:packageNames="com.google.android.apps.messaging,com.samsung.android.messaging,org.kde.kdeconnect_tp,org.kde.kdeconnect_tp.debug,dev.slonnect.mobile,dev.slonnect.mobile.debug"
+    android:description="@string/slonnect_bridge_accessibility_description" />

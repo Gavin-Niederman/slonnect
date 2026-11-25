@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Strings for Slonnect additions (not translated yet). -->
+<resources>
+    <string name="slonnect_bridge_accessibility_label">Slonnect: send messages</string>
+    <string name="slonnect_bridge_accessibility_description">Lets the Slonnect Messages bridge press Send in your messaging app when you send an RCS message from your computer and there is no notification to reply to. It only acts right after you send something, and only in messaging apps.</string>
+    <string name="slonnect_app_name">Slonnect</string>
+</resources>

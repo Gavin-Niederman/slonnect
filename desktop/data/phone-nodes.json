@@ -1,0 +1,148 @@
+{
+    "_comment": "Bundled phone node catalogue: what the editor offers before a phone has said hello, and what demo mode (SLONNECT_DEMO=1) runs. Mirrors what the Slonnect Android app reports in its hello (mobile/src/main/java/dev/slonnect/mobile/nodes/PhoneNodes.kt).",
+    "nodes": [
+        {
+            "id": "bluetooth",
+            "title": "Phone Bluetooth device",
+            "icon": "bluetooth_connected",
+            "description": "Connects or disconnects a Bluetooth device paired with the phone (earbuds, car, speaker). Needs Shizuku on Android 12 and later.",
+            "inputs": [
+                {"id": "device", "label": "Device", "kind": "text", "placeholder": "name or address"},
+                {"id": "mode", "label": "Do", "kind": "choice", "options": ["connect", "disconnect", "toggle"], "default": "connect"}
+            ],
+            "outputs": [{"id": "connected", "label": "Connected", "kind": "bool"}],
+            "flows": ["out"]
+        },
+        {
+            "id": "bluetooth.connected",
+            "title": "Phone Bluetooth connected?",
+            "icon": "bluetooth",
+            "description": "Branches on whether a paired Bluetooth device is connected to the phone right now.",
+            "inputs": [{"id": "device", "label": "Device", "kind": "text", "placeholder": "name or address"}],
+            "outputs": [],
+            "flows": ["yes", "no"]
+        },
+        {
+            "id": "bluetooth.power",
+            "title": "Phone Bluetooth power",
+            "icon": "bluetooth",
+            "description": "Turns the phone's Bluetooth on or off.",
+            "inputs": [{"id": "state", "label": "Turn", "kind": "choice", "options": ["on", "off"], "default": "on"}],
+            "outputs": [],
+            "flows": ["out"]
+        },
+        {
+            "id": "volume",
+            "title": "Phone volume",
+            "icon": "volume_up",
+            "description": "Sets a volume on the phone, in percent, or mutes it.",
+            "inputs": [
+                {"id": "stream", "label": "Stream", "kind": "choice", "options": ["media", "ring", "notification", "alarm", "call"], "default": "media"},
+                {"id": "mode", "label": "Do", "kind": "choice", "options": ["set", "mute", "unmute"], "default": "set"},
+                {"id": "level", "label": "Level %", "kind": "number", "default": 50}
+            ],
+            "outputs": [],
+            "flows": ["out"]
+        },
+        {
+            "id": "ringer",
+            "title": "Ringer mode",
+            "icon": "vibration",
+            "description": "Normal, vibrate or silent. Silent needs Do Not Disturb access.",
+            "inputs": [{"id": "mode", "label": "Mode", "kind": "choice", "options": ["normal", "vibrate", "silent"], "default": "vibrate"}],
+            "outputs": [],
+            "flows": ["out"]
+        },
+        {
+            "id": "dnd",
+            "title": "Do Not Disturb",
+            "icon": "do_not_disturb_on",
+            "description": "Turns Do Not Disturb on the phone on or off.",
+            "inputs": [{"id": "state", "label": "Turn", "kind": "choice", "options": ["on", "off", "toggle"], "default": "on"}],
+            "outputs": [],
+            "flows": ["out"]
+        },
+        {
+            "id": "flashlight",
+            "title": "Flashlight",
+            "icon": "flashlight_on",
+            "description": "Turns the phone's flashlight on or off.",
+            "inputs": [{"id": "state", "label": "Turn", "kind": "choice", "options": ["on", "off", "toggle"], "default": "toggle"}],
+            "outputs": [],
+            "flows": ["out"]
+        },
+        {
+            "id": "media",
+            "title": "Phone media key",
+            "icon": "play_circle",
+            "description": "Presses a media key on the phone (whatever app is playing).",
+            "inputs": [{"id": "key", "label": "Key", "kind": "choice", "options": ["play/pause", "play", "pause", "next", "previous", "stop"], "default": "play/pause"}],
+            "outputs": [],
+            "flows": ["out"]
+        },
+        {
+            "id": "launch",
+            "title": "Open on phone",
+            "icon": "open_in_new",
+            "description": "Opens an app (package name) or a link on the phone.",
+            "inputs": [{"id": "target", "label": "App or link", "kind": "text", "placeholder": "com.spotify.music or https://…"}],
+            "outputs": [],
+            "flows": ["out"]
+        },
+        {
+            "id": "notify",
+            "title": "Phone notification",
+            "icon": "notifications",
+            "description": "Shows a notification on the phone.",
+            "inputs": [
+                {"id": "title", "label": "Title", "kind": "text"},
+                {"id": "text", "label": "Text", "kind": "text"}
+            ],
+            "outputs": [],
+            "flows": ["out"]
+        },
+        {
+            "id": "vibrate",
+            "title": "Vibrate",
+            "icon": "vibration",
+            "description": "Vibrates the phone.",
+            "inputs": [{"id": "ms", "label": "Milliseconds", "kind": "number", "default": 300}],
+            "outputs": [],
+            "flows": ["out"]
+        },
+        {
+            "id": "clipboard",
+            "title": "Phone clipboard",
+            "icon": "content_paste",
+            "description": "Puts text on the phone's clipboard.",
+            "inputs": [{"id": "text", "label": "Text", "kind": "text"}],
+            "outputs": [],
+            "flows": ["out"]
+        },
+        {
+            "id": "intent",
+            "title": "Send intent",
+            "icon": "send",
+            "description": "Sends a broadcast intent, e.g. to trigger a Tasker or MacroDroid profile. Extras are a JSON object of strings, numbers and booleans.",
+            "inputs": [
+                {"id": "action", "label": "Action", "kind": "text", "placeholder": "net.dinglisch.android.tasker.ACTION_TASK"},
+                {"id": "package", "label": "Package", "kind": "text", "placeholder": "optional"},
+                {"id": "extras", "label": "Extras (JSON)", "kind": "text", "placeholder": "{\"task_name\": \"Home\"}"}
+            ],
+            "outputs": [],
+            "flows": ["out"]
+        },
+        {
+            "id": "shell",
+            "title": "Phone shell (Shizuku)",
+            "icon": "terminal",
+            "description": "Runs a shell command on the phone with adb-level rights through Shizuku.",
+            "inputs": [{"id": "command", "label": "Command", "kind": "text", "placeholder": "svc wifi enable"}],
+            "outputs": [
+                {"id": "stdout", "label": "Output", "kind": "text"},
+                {"id": "exitCode", "label": "Exit code", "kind": "number"}
+            ],
+            "flows": ["out"]
+        }
+    ]
+}

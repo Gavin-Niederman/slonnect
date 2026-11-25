@@ -5,7 +5,7 @@ stdenv.mkDerivation {
   version = "0.1.0";
 
   src = lib.cleanSourceWith {
-    src = ./..;
+    src = ../desktop;
     filter = path: type: !(lib.hasPrefix "build" (baseNameOf path)) && baseNameOf path != "result";
   };
 
